@@ -1,7 +1,8 @@
 // Formulaire d'un profil : il s'ouvre à la place de la liste et parle au worker par profile.save / profile.delete.
 import { atom, Button, Callout, Field, Heading, Input, plugin, read, Row, Select, set, Stack, Textarea, update } from 'orca'
 import { agentById } from './agents'
-import { COPY } from './copy'
+import type { Messages } from './copy'
+import { copy } from './panel-copy'
 import { shellQuote, splitWords } from './launch'
 import { newId, type FieldErrors, type Profile, type Store } from './store'
 
@@ -124,76 +125,77 @@ async function remove(onStore: (next: Store) => void): Promise<void> {
 const stemOf = (file: string): string => file.replace(/^.*\//, '').replace(/\.[^.]+$/, '')
 
 /** Une icône d'agent porte le même nom qu'un avatar (« claude ») : le libellé les distingue. */
-const avatarLabel = (file: string): string => (file.startsWith('agent-icons/') ? COPY.agentIconLabel(stemOf(file)) : stemOf(file))
+const avatarLabel = (file: string, m: Messages): string => (file.startsWith('agent-icons/') ? m.agentIconLabel(stemOf(file)) : stemOf(file))
 
-function avatarOptions(files: string[], chosen: string) {
+function avatarOptions(files: string[], chosen: string, m: Messages) {
   // Un fichier choisi mais disparu du dossier reste une option : l'enregistrer ne doit pas l'effacer en silence.
   const names = chosen !== NO_AVATAR && !files.includes(chosen) ? [...files, chosen] : files
-  return [{ value: NO_AVATAR, label: COPY.avatarNone }, ...names.map((file) => ({ value: file, label: avatarLabel(file) }))]
+  return [{ value: NO_AVATAR, label: m.avatarNone }, ...names.map((file) => ({ value: file, label: avatarLabel(file, m) }))]
 }
 
-const effortLabel = (value: string): string => (COPY.efforts as Record<string, string>)[value] ?? value
+const effortLabel = (value: string, m: Messages): string => (m.efforts as Record<string, string>)[value] ?? value
 
 export function renderProfileForm(current: Store, files: string[], onStore: (next: Store) => void) {
+  const m = copy()
   const state = read(profileForm)
   if (!state) return null
   const { draft, errors, formError, busy, isNew } = state
   const spec = agentById(draft.agentId)
   return (
     <Stack gap="md">
-      <Heading level={3}>{isNew ? COPY.newProfileFor(spec?.label ?? draft.agentId) : COPY.editProfileTitle}</Heading>
-      <Field label={COPY.fieldName} error={errors.name}>
-        <Input label={COPY.fieldName} labelHidden value={draft.name} invalid={!!errors.name} onChange={(name) => patch({ name })} />
+      <Heading level={3}>{isNew ? m.newProfileFor(spec?.label ?? draft.agentId) : m.editProfileTitle}</Heading>
+      <Field label={m.fieldName} error={errors.name}>
+        <Input label={m.fieldName} labelHidden value={draft.name} invalid={!!errors.name} onChange={(name) => patch({ name })} />
       </Field>
-      <Field label={COPY.fieldAvatar}>
+      <Field label={m.fieldAvatar}>
         <Select
-          label={COPY.fieldAvatar}
+          label={m.fieldAvatar}
           labelHidden
           value={draft.avatar}
-          options={avatarOptions(files, draft.avatar)}
+          options={avatarOptions(files, draft.avatar, m)}
           onChange={(avatar) => patch({ avatar })}
         />
       </Field>
       {spec?.model ? (
-        <Field label={COPY.fieldModel} error={errors.model}>
-          <Input label={COPY.fieldModel} labelHidden value={draft.model} invalid={!!errors.model} onChange={(model) => patch({ model })} />
+        <Field label={m.fieldModel} error={errors.model}>
+          <Input label={m.fieldModel} labelHidden value={draft.model} invalid={!!errors.model} onChange={(model) => patch({ model })} />
         </Field>
       ) : null}
       {spec?.effort ? (
-        <Field label={COPY.fieldEffort} error={errors.effort}>
+        <Field label={m.fieldEffort} error={errors.effort}>
           <Select
-            label={COPY.fieldEffort}
+            label={m.fieldEffort}
             labelHidden
             value={draft.effort}
             options={[
-              { value: DEFAULT_EFFORT, label: COPY.effortDefault },
-              ...spec.effort.values.map((value) => ({ value, label: effortLabel(value) }))
+              { value: DEFAULT_EFFORT, label: m.effortDefault },
+              ...spec.effort.values.map((value) => ({ value, label: effortLabel(value, m) }))
             ]}
             onChange={(effort) => patch({ effort })}
           />
         </Field>
       ) : null}
       {spec?.supportsProvider ? (
-        <Field label={COPY.fieldProvider} error={errors.providerId}>
+        <Field label={m.fieldProvider} error={errors.providerId}>
           <Select
-            label={COPY.fieldProvider}
+            label={m.fieldProvider}
             labelHidden
             value={draft.providerId}
             options={[
-              { value: NO_PROVIDER, label: COPY.providerNone },
+              { value: NO_PROVIDER, label: m.providerNone },
               ...current.providers.map((p) => ({ value: p.id, label: p.name }))
             ]}
             onChange={(providerId) => patch({ providerId })}
           />
         </Field>
       ) : null}
-      <Field label={COPY.fieldExtraArgs}>
+      <Field label={m.fieldExtraArgs}>
         <Textarea
-          label={COPY.fieldExtraArgs}
+          label={m.fieldExtraArgs}
           labelHidden
           rows={3}
           value={draft.extraArgs}
-          placeholder={COPY.extraArgsPlaceholder}
+          placeholder={m.extraArgsPlaceholder}
           onChange={(extraArgs) => patch({ extraArgs })}
         />
       </Field>
@@ -202,15 +204,15 @@ export function renderProfileForm(current: Store, files: string[], onStore: (nex
       <Row justify="between" align="center">
         <Row gap="xs">
           <Button disabled={busy} onPress={() => save(onStore)}>
-            {COPY.save}
+            {m.save}
           </Button>
           <Button variant="ghost" onPress={close}>
-            {COPY.cancel}
+            {m.cancel}
           </Button>
         </Row>
         {isNew ? null : (
           <Button variant="outline" tone="danger" disabled={busy} onPress={() => remove(onStore)}>
-            {COPY.remove}
+            {m.remove}
           </Button>
         )}
       </Row>

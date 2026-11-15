@@ -1,7 +1,7 @@
 // Modèle de données du plugin : types, validation et analyse des lignes d'environnement.
 // Fonctions pures, sans dépendance à l'hôte Orca.
 import { agentById } from './agents'
-import { COPY } from './copy'
+import type { Messages } from './copy'
 
 export const STORE_KEY = 'store.v2'
 
@@ -99,23 +99,23 @@ export function sameModel(a: string, b: string): boolean {
 }
 
 /** Une erreur au plus par champ. Un agent inconnu arrête la validation : sa grammaire manque pour juger le reste. */
-export function validateProfile(store: Store, draft: Profile): FieldErrors {
+export function validateProfile(store: Store, draft: Profile, m: Messages): FieldErrors {
   const errors: FieldErrors = {}
   const name = draft.name.trim()
-  if (name === '') errors.name = COPY.nameRequired
+  if (name === '') errors.name = m.nameRequired
   else if (store.profiles.some((p) => p.id !== draft.id && p.agentId === draft.agentId && p.name.trim() === name)) {
-    errors.name = COPY.nameTaken
+    errors.name = m.nameTaken
   }
   const spec = agentById(draft.agentId)
   if (!spec) {
-    errors.agentId = COPY.agentUnknown
+    errors.agentId = m.agentUnknown
     return errors
   }
   const model = draft.model?.trim() ?? ''
   if (spec.model) {
-    if (model === '') errors.model = COPY.modelRequired
+    if (model === '') errors.model = m.modelRequired
   } else if (draft.model !== null) {
-    errors.model = COPY.modelNotAccepted
+    errors.model = m.modelNotAccepted
   }
   // Le modèle identifie le profil quand Claude le reçoit par le flag `--model` (repli du hook) :
   // seuls les profils Claude à fournisseur doivent être distincts entre eux.
@@ -123,24 +123,24 @@ export function validateProfile(store: Store, draft: Profile): FieldErrors {
     const taken = store.profiles.find(
       (p) => p.id !== draft.id && p.agentId === spec.id && p.providerId !== null && p.model !== null && sameModel(p.model, model)
     )
-    if (taken) errors.model = COPY.modelTaken(taken.name)
+    if (taken) errors.model = m.modelTaken(taken.name)
   }
-  if (draft.effort !== null && !spec.effort?.values.includes(draft.effort)) errors.effort = COPY.effortNotSupported
+  if (draft.effort !== null && !spec.effort?.values.includes(draft.effort)) errors.effort = m.effortNotSupported
   if (draft.providerId !== null) {
-    if (!spec.supportsProvider) errors.providerId = COPY.providerClaudeOnly
-    else if (!store.providers.some((p) => p.id === draft.providerId)) errors.providerId = COPY.providerNotFound
+    if (!spec.supportsProvider) errors.providerId = m.providerClaudeOnly
+    else if (!store.providers.some((p) => p.id === draft.providerId)) errors.providerId = m.providerNotFound
   }
   return errors
 }
 
-export function validateProvider(_store: Store, draft: Provider): FieldErrors {
+export function validateProvider(_store: Store, draft: Provider, m: Messages): FieldErrors {
   const errors: FieldErrors = {}
-  if (draft.name.trim() === '') errors.name = COPY.nameRequired
+  if (draft.name.trim() === '') errors.name = m.nameRequired
   const baseUrl = draft.baseUrl.trim()
-  if (baseUrl === '') errors.baseUrl = COPY.baseUrlRequired
-  else if (!/^https?:\/\//i.test(baseUrl)) errors.baseUrl = COPY.baseUrlScheme
-  else if (/\/v1\/?$/i.test(baseUrl)) errors.baseUrl = COPY.baseUrlNoV1
-  if (draft.token.trim() === '') errors.token = COPY.tokenRequired
+  if (baseUrl === '') errors.baseUrl = m.baseUrlRequired
+  else if (!/^https?:\/\//i.test(baseUrl)) errors.baseUrl = m.baseUrlScheme
+  else if (/\/v1\/?$/i.test(baseUrl)) errors.baseUrl = m.baseUrlNoV1
+  if (draft.token.trim() === '') errors.token = m.tokenRequired
   return errors
 }
 
@@ -163,21 +163,21 @@ export function upsertProvider(store: Store, provider: Provider): Store {
   return { ...store, providers: upsertById(store.providers, provider) }
 }
 
-export function removeProvider(store: Store, providerId: string): { store: Store } | { error: string } {
+export function removeProvider(store: Store, providerId: string, m: Messages): { store: Store } | { error: string } {
   const users = store.profiles.filter((p) => p.providerId === providerId)
-  if (users.length > 0) return { error: COPY.providerInUse(users.map((p) => p.name).join(', ')) }
+  if (users.length > 0) return { error: m.providerInUse(users.map((p) => p.name).join(', ')) }
   return { store: { ...store, providers: store.providers.filter((p) => p.id !== providerId) } }
 }
 
 /** Une ligne `NOM=valeur` par variable ; la valeur est tout ce qui suit le premier `=`. */
-export function parseEnvLines(text: string): { env: Record<string, string> } | { error: string } {
+export function parseEnvLines(text: string, m: Messages): { env: Record<string, string> } | { error: string } {
   const env: Record<string, string> = {}
   const lines = text.split(/\r?\n/)
   for (const [index, line] of lines.entries()) {
     if (line.trim() === '') continue
     const separator = line.indexOf('=')
     const name = separator === -1 ? '' : line.slice(0, separator)
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return { error: COPY.envLine(index + 1) }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return { error: m.envLine(index + 1) }
     env[name] = line.slice(separator + 1)
   }
   return { env }

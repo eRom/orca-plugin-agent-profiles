@@ -8,6 +8,8 @@ export type LaunchResult = { ok: true } | { ok: false; reason: string }
 
 declare module 'orca' {
   interface PluginRequests {
+    /** Langue d'affichage du panneau (BCP-47) : le worker la retient et la persiste pour ses propres messages. */
+    'locale.set': { input: { locale: string }; output: { ok: true } }
     'store.get': { output: Store }
     'profile.save': { input: { profile: Profile }; output: SaveResult }
     'profile.delete': { input: { profileId: string }; output: DeleteResult }

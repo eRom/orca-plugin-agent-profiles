@@ -1,6 +1,6 @@
 // Formulaire d'un fournisseur : même principe que celui d'un profil, avec les variables d'environnement en lignes.
 import { atom, Button, Callout, Field, Heading, Input, plugin, read, Row, set, Stack, Textarea, update } from 'orca'
-import { COPY } from './copy'
+import { copy } from './panel-copy'
 import { formatEnvLines, isEnvReference, newId, parseEnvLines, type FieldErrors, type Provider, type Store } from './store'
 
 /** Au-delà de cette longueur, un jeton qui n'est pas une référence `$NOM` ressemble à un vrai secret. */
@@ -44,7 +44,7 @@ async function save(onStore: (next: Store) => void): Promise<void> {
   const state = read(providerForm)
   if (!state || state.busy) return
   const { draft } = state
-  const parsed = parseEnvLines(draft.extraEnv)
+  const parsed = parseEnvLines(draft.extraEnv, copy())
   if ('error' in parsed) {
     update(providerForm, (s) => (s ? { ...s, errors: { extraEnv: parsed.error }, formError: null } : s))
     return
@@ -82,6 +82,7 @@ async function remove(onStore: (next: Store) => void): Promise<void> {
 }
 
 export function renderProviderForm(onStore: (next: Store) => void) {
+  const m = copy()
   const state = read(providerForm)
   if (!state) return null
   const { draft, errors, formError, busy, isNew } = state
@@ -90,37 +91,37 @@ export function renderProviderForm(onStore: (next: Store) => void) {
   const literalToken = !isEnvReference(token) && token.length > LITERAL_TOKEN_MIN_LENGTH
   return (
     <Stack gap="md">
-      <Heading level={3}>{isNew ? COPY.newProvider : COPY.editProviderTitle}</Heading>
-      <Field label={COPY.fieldName} error={errors.name}>
-        <Input label={COPY.fieldName} labelHidden value={draft.name} invalid={!!errors.name} onChange={(name) => patch({ name })} />
+      <Heading level={3}>{isNew ? m.newProvider : m.editProviderTitle}</Heading>
+      <Field label={m.fieldName} error={errors.name}>
+        <Input label={m.fieldName} labelHidden value={draft.name} invalid={!!errors.name} onChange={(name) => patch({ name })} />
       </Field>
-      <Field label={COPY.fieldBaseUrl} error={errors.baseUrl}>
+      <Field label={m.fieldBaseUrl} error={errors.baseUrl}>
         <Input
-          label={COPY.fieldBaseUrl}
+          label={m.fieldBaseUrl}
           labelHidden
           value={draft.baseUrl}
           invalid={!!errors.baseUrl}
           onChange={(baseUrl) => patch({ baseUrl })}
         />
       </Field>
-      <Field label={COPY.fieldToken} error={errors.token}>
+      <Field label={m.fieldToken} error={errors.token}>
         <Input
-          label={COPY.fieldToken}
+          label={m.fieldToken}
           labelHidden
           value={draft.token}
-          placeholder={COPY.tokenPlaceholder}
+          placeholder={m.tokenPlaceholder}
           invalid={!!errors.token}
           onChange={(token) => patch({ token })}
         />
       </Field>
-      {literalToken ? <Callout tone="warning">{COPY.literalToken}</Callout> : null}
-      <Field label={COPY.fieldExtraEnv} error={errors.extraEnv}>
+      {literalToken ? <Callout tone="warning">{m.literalToken}</Callout> : null}
+      <Field label={m.fieldExtraEnv} error={errors.extraEnv}>
         <Textarea
-          label={COPY.fieldExtraEnv}
+          label={m.fieldExtraEnv}
           labelHidden
           rows={3}
           value={draft.extraEnv}
-          placeholder={COPY.extraEnvPlaceholder}
+          placeholder={m.extraEnvPlaceholder}
           invalid={!!errors.extraEnv}
           onChange={(extraEnv) => patch({ extraEnv })}
         />
@@ -129,15 +130,15 @@ export function renderProviderForm(onStore: (next: Store) => void) {
       <Row justify="between" align="center">
         <Row gap="xs">
           <Button disabled={busy} onPress={() => save(onStore)}>
-            {COPY.save}
+            {m.save}
           </Button>
           <Button variant="ghost" onPress={close}>
-            {COPY.cancel}
+            {m.cancel}
           </Button>
         </Row>
         {isNew ? null : (
           <Button variant="outline" tone="danger" disabled={busy} onPress={() => remove(onStore)}>
-            {COPY.remove}
+            {m.remove}
           </Button>
         )}
       </Row>

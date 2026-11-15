@@ -25,7 +25,7 @@ import {
   type PanelContext
 } from 'orca'
 import { agentById, type AgentSpec } from './agents'
-import { COPY } from './copy'
+import { byName, copy } from './panel-copy'
 import { themedIcon } from './icons'
 import type { Inventory } from './inventory'
 import { openProfileForm, profileForm, renderProfileForm } from './profile-form'
@@ -132,6 +132,8 @@ export function setup(ctx: PanelContext): void {
   ctx.subscriptions.push(plugin.on('store.changed', applyStore))
   ctx.subscriptions.push(plugin.on('agents.changed', applyInventory))
   ctx.subscriptions.push(on('workspace.changed', (payload) => applyContext(payload.context)))
+  // D'abord : le worker n'a pas de locale, il parle la dernière annoncée (validations, refus du hook, relance).
+  void plugin.request('locale.set', { locale: env.locale }).catch(() => undefined)
   void readContext()
   void loadStore()
   void loadInventory('agents.list')
@@ -142,11 +144,9 @@ export function setup(ctx: PanelContext): void {
 }
 
 function providerName(current: Store, profile: Profile): string {
-  return current.providers.find((p) => p.id === profile.providerId)?.name ?? COPY.unknownProvider
+  const m = copy()
+  return current.providers.find((p) => p.id === profile.providerId)?.name ?? m.unknownProvider
 }
-
-/** Ordre alphabétique d'affichage : casse et accents ignorés, nombres dans l'ordre naturel (« 9 » avant « 10 »). */
-const byName = (a: string, b: string): number => a.localeCompare(b, 'fr', { sensitivity: 'base', numeric: true })
 
 /**
  * Largeur de l'emplacement de tête d'un profil, en pixels : avatar et monogramme y tiennent, les noms des profils
@@ -186,6 +186,7 @@ function renderProfileSummary(current: Store, profile: Profile) {
 }
 
 function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, canLaunch: boolean) {
+  const m = copy()
   return (
     <Row key={profile.id} justify="between" align="center" gap="sm">
       {/* Le texte prend la place libre et se tronque (minWidth 0) ; les actions gardent leur taille,
@@ -203,7 +204,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
             <Text weight="semibold" truncate>
               {profile.name}
             </Text>
-            {current.lastProfileId === profile.id ? <Badge tone="accent">{COPY.lastBadge}</Badge> : null}
+            {current.lastProfileId === profile.id ? <Badge tone="accent">{m.lastBadge}</Badge> : null}
           </Row>
           {renderProfileSummary(current, profile)}
         </Box>
@@ -211,7 +212,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
       <Box key={`actions-${profile.id}`} direction="row" gap="xs" shrink={false}>
         <IconButton
           icon="play"
-          label={COPY.launch(profile.name)}
+          label={m.launch(profile.name)}
           variant="ghost"
           size="sm"
           disabled={!canLaunch}
@@ -219,7 +220,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
         />
         <IconButton
           icon="edit"
-          label={COPY.edit(profile.name)}
+          label={m.edit(profile.name)}
           variant="ghost"
           size="sm"
           onPress={() => openProfileForm(spec.id, profile)}
@@ -236,6 +237,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
  * `card` s'y confond sur le thème sombre.
  */
 function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, collapsed: boolean) {
+  const m = copy()
   const profiles = current.profiles.filter((profile) => profile.agentId === spec.id).sort((a, b) => byName(a.name, b.name))
   return (
     <Box key={spec.id} border radius="md" padding="sm" gap="sm" background="muted">
@@ -245,7 +247,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
           {/* Convention d'arborescence : chevron vers le bas quand le groupe est ouvert, vers la droite quand il est replié. */}
           <IconButton
             icon={collapsed ? 'next' : 'expand'}
-            label={collapsed ? COPY.expandGroup(spec.label) : COPY.collapseGroup(spec.label)}
+            label={collapsed ? m.expandGroup(spec.label) : m.collapseGroup(spec.label)}
             variant="ghost"
             size="sm"
             onPress={() => toggleGroup(spec.id)}
@@ -259,7 +261,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
           {collapsed ? (
             <Box key={`count-${spec.id}`} shrink={false}>
               <Text muted size="xs">
-                {COPY.profileCount(profiles.length)}
+                {m.profileCount(profiles.length)}
               </Text>
             </Box>
           ) : null}
@@ -267,7 +269,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
         <Box key={`add-${spec.id}`} shrink={false}>
           <IconButton
             icon="add"
-            label={COPY.newProfileFor(spec.label)}
+            label={m.newProfileFor(spec.label)}
             variant="ghost"
             size="sm"
             onPress={() => newProfile(spec.id)}
@@ -276,7 +278,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
       </Row>
       {collapsed ? null : profiles.length === 0 ? (
         <Text muted size="xs">
-          {COPY.noProfileForAgent}
+          {m.noProfileForAgent}
         </Text>
       ) : (
         profiles.map((profile) => renderProfileRow(current, spec, profile, canLaunch))
@@ -286,6 +288,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
 }
 
 function renderProviderRow(current: Store, provider: Provider) {
+  const m = copy()
   return (
     <Row key={provider.id} justify="between" align="center" gap="sm">
       <Box key={`text-${provider.id}`} grow minWidth={0}>
@@ -299,7 +302,7 @@ function renderProviderRow(current: Store, provider: Provider) {
       <Box key={`actions-${provider.id}`} shrink={false}>
         <IconButton
           icon="edit"
-          label={COPY.edit(provider.name)}
+          label={m.edit(provider.name)}
           variant="ghost"
           size="sm"
           onPress={() => openProviderForm(current, provider)}
@@ -310,15 +313,16 @@ function renderProviderRow(current: Store, provider: Provider) {
 }
 
 function renderProviders(current: Store) {
+  const m = copy()
   return (
     <Stack gap="sm">
       <Row justify="between" align="center">
-        <Text weight="semibold">{COPY.tabProviders}</Text>
-        <IconButton icon="add" label={COPY.newProvider} variant="ghost" size="sm" onPress={() => openProviderForm(current, null)} />
+        <Text weight="semibold">{m.tabProviders}</Text>
+        <IconButton icon="add" label={m.newProvider} variant="ghost" size="sm" onPress={() => openProviderForm(current, null)} />
       </Row>
       {current.providers.length === 0 ? (
         <Text muted size="xs">
-          {COPY.noProviderHint}
+          {m.noProviderHint}
         </Text>
       ) : (
         current.providers.map((provider) => renderProviderRow(current, provider))
@@ -328,35 +332,37 @@ function renderProviders(current: Store) {
 }
 
 function renderGroups(current: Store, agents: Inventory | null, canLaunch: boolean) {
+  const m = copy()
   if (agents === null) {
-    return read(inventoryError) === null ? <Skeleton lines={3} label={COPY.detectingAgents} /> : null
+    return read(inventoryError) === null ? <Skeleton lines={3} label={m.detectingAgents} /> : null
   }
   // L'inventaire suit l'ordre du catalogue d'Orca ; le volet, lui, range les groupes par ordre alphabétique.
   const specs = agents.agents.flatMap((id) => agentById(id) ?? []).sort((a, b) => byName(a.label, b.label))
-  if (specs.length === 0) return <EmptyState icon="bot" title={COPY.noAgentTitle} description={COPY.noAgentHint} />
+  if (specs.length === 0) return <EmptyState icon="bot" title={m.noAgentTitle} description={m.noAgentHint} />
   const collapsed = read(collapsedAgents)
   return <Stack gap="sm">{specs.map((spec) => renderAgentGroup(current, spec, canLaunch, collapsed.includes(spec.id)))}</Stack>
 }
 
 export default function Panel() {
+  const m = copy()
   const current = read(store)
   const failed = read(loadError)
   if (current === null) {
     if (failed !== null) {
       return (
         <Stack gap="sm">
-          <Callout tone="danger" title={COPY.loadFailedTitle}>
+          <Callout tone="danger" title={m.loadFailedTitle}>
             {failed}
           </Callout>
           <Row>
             <Button variant="outline" onPress={loadStore}>
-              {COPY.retry}
+              {m.retry}
             </Button>
           </Row>
         </Stack>
       )
     }
-    return <Skeleton lines={3} label={COPY.loading} />
+    return <Skeleton lines={3} label={m.loading} />
   }
 
   if (read(profileForm) !== null) {
@@ -375,28 +381,28 @@ export default function Panel() {
       <Row justify="end">
         <IconButton
           icon="refresh"
-          label={COPY.refreshAgents}
+          label={m.refreshAgents}
           variant="ghost"
           size="sm"
           disabled={read(refreshing)}
           onPress={refreshInventory}
         />
       </Row>
-      {id === null ? <Callout tone="warning">{COPY.noWorkspace}</Callout> : null}
-      {agents?.settingsReadable === false ? <Callout tone="neutral">{COPY.settingsUnreadable}</Callout> : null}
+      {id === null ? <Callout tone="warning">{m.noWorkspace}</Callout> : null}
+      {agents?.settingsReadable === false ? <Callout tone="neutral">{m.settingsUnreadable}</Callout> : null}
       {failure === null ? null : (
-        <Callout tone="danger" title={COPY.launchFailedTitle}>
+        <Callout tone="danger" title={m.launchFailedTitle}>
           {failure}
         </Callout>
       )}
       {detectFailure === null ? null : (
         <Stack gap="sm">
-          <Callout tone="danger" title={COPY.detectFailedTitle}>
+          <Callout tone="danger" title={m.detectFailedTitle}>
             {detectFailure}
           </Callout>
           <Row>
             <Button variant="outline" onPress={() => loadInventory('agents.list')}>
-              {COPY.retry}
+              {m.retry}
             </Button>
           </Row>
         </Stack>

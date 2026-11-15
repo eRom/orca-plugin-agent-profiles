@@ -1,12 +1,14 @@
 // Joue le worker comme Orca le ferait : requêtes du panneau, commande, et hook déclenché pendant agent.launch.
 import { assert, hostError, mockHost, mountWorker, test } from 'orca/testing'
 import { agentById } from './agents'
-import { COPY } from './copy'
+import { MESSAGES } from './copy'
 import type { InventoryDeps } from './inventory'
 import { splitWords } from './launch'
 import { EMPTY_STORE, STORE_KEY, type Profile, type Store } from './store'
 import { AGY_CMD, ARGON, CLAUDE_CMD, CODEX_CMD, DEEPSEEK, fakeDeps, HARNESS, LUNA, OLLAMA, OPUS, SAMPLE_STORE } from './test-fixtures'
-import { activateWith } from './worker'
+import { activateWith, LOCALE_KEY } from './worker'
+
+const COPY = MESSAGES.fr
 
 // Forme réelle capturée dans `orca plugin logs` (Orca 1.4.259) : `orca agent launch --model`.
 const CLI = "claude '--dangerously-skip-permissions' '--model' 'deepseek-v4.1-flash:cloud[1m]' 'Reponds uniquement: OK-SPIKE'"
@@ -41,9 +43,16 @@ const ORPHAN_STORE: Store = { ...STORE, profiles: STORE.profiles.map((p) => (p.i
 
 const words = (command: string): string[] => splitWords(command).map((word) => word.value)
 
-/** Monte le worker sur des dépendances d'inventaire factices : jamais le vrai shell ni la vraie base d'Orca. */
-const mountV2 = (host: ReturnType<typeof mockHost>, deps: InventoryDeps = fakeDeps().deps) =>
+/** Monte le worker sur des dépendances d'inventaire factices, sans jamais lancer le vrai shell ni toucher la vraie base d'Orca. */
+const mountBare = (host: ReturnType<typeof mockHost>, deps: InventoryDeps = fakeDeps().deps) =>
   mountWorker({ default: (orca) => activateWith(orca, deps) }, { host })
+
+/** Comme Orca : le panneau annonce sa langue à son montage. Les tests historiques attendent le français. */
+async function mountV2(host: ReturnType<typeof mockHost>, deps: InventoryDeps = fakeDeps().deps, locale = 'fr-FR') {
+  const worker = await mountBare(host, deps)
+  await worker.request('locale.set', { locale })
+  return worker
+}
 
 const pause = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -742,5 +751,91 @@ test('stays quiet when the settings are readable and the shell answered', async 
   await worker.request('agents.list')
   assert.ok(!worker.logs.includes('settings unreadable'))
   assert.ok(!worker.logs.includes('shell probe failed, PATH fallback'))
+  await worker.deactivate()
+})
+
+// Langue du worker (AC-4) : les textes anglais sont écrits en clair, pas lus dans le dictionnaire, pour que le test morde.
+
+test('the worker speaks English until a panel announces a language', async () => {
+  const worker = await mountBare(mockHost())
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), 'No profile launched yet.')
+  assert.deepEqual(await worker.request('profile.delete', { profileId: 'nope' }), { ok: false, error: 'Profile not found.' })
+  await worker.deactivate()
+})
+
+test('after an English panel, relaunch, validations and hook refusals answer in English', async () => {
+  const host = mockHost({
+    storage: { [STORE_KEY]: ORPHAN_STORE },
+    results: { 'workspace.readContext': null }
+  })
+  const worker = await mountV2(host, fakeDeps().deps, 'en-US')
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), 'No profile launched yet.')
+  assert.deepEqual(await worker.request('profile.launch', { profileId: DEEPSEEK.id }), {
+    ok: false,
+    reason: 'Open a workspace to launch a profile.'
+  })
+  const invalid = await worker.request('provider.save', { provider: { ...OLLAMA, id: 'x', baseUrl: 'localhost' } })
+  assert.deepEqual(invalid, { ok: false, errors: { baseUrl: 'The URL must start with http:// or https://.' } })
+  assert.deepEqual(await worker.hooks.fire('agent.launch.before', launch(CLI)), {
+    kind: 'deny',
+    reason: '"DeepSeek 4.1 Flash": provider not found.'
+  })
+  await worker.deactivate()
+})
+
+test('relaunch speaks English after en-US and French after fr-FR, the last announcement winning', async () => {
+  const host = mockHost({
+    storage: { [STORE_KEY]: { ...SAMPLE_STORE, lastProfileId: ARGON.id } },
+    results: { 'workspace.readContext': CONTEXT, 'agent.launch': { terminalId: 't1' } }
+  })
+  const worker = await mountBare(host, fakeDeps(['claude']).deps)
+  await worker.request('locale.set', { locale: 'en-US' })
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), 'Antigravity is disabled in Orca.')
+  await worker.request('locale.set', { locale: 'fr-FR' })
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), 'Antigravity est désactivé dans Orca.')
+  await worker.request('locale.set', { locale: 'de-DE' })
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), 'Antigravity is disabled in Orca.')
+  await worker.deactivate()
+})
+
+test('any French variant is French, any other language is English', async () => {
+  const worker = await mountBare(mockHost())
+  for (const [tag, expected] of [['fr', 'fr'], ['fr-CA', 'fr'], ['FR_be', 'fr'], ['frisian', 'en'], ['en-GB', 'en'], ['', 'en']] as const) {
+    await worker.request('locale.set', { locale: tag })
+    assert.equal(await worker.command('agentProfiles.relaunchLast'), MESSAGES[expected].noLastProfile, tag)
+  }
+  await worker.deactivate()
+})
+
+test('the last announced language survives a worker restart, in its own storage key', async () => {
+  const legacy = { version: 1, providers: [], profiles: [{ id: 'old' }] }
+  const host = mockHost({ storage: { 'store.v1': legacy, [STORE_KEY]: SAMPLE_STORE } })
+  const first = await mountV2(host, fakeDeps().deps, 'fr-FR')
+  await first.deactivate()
+  assert.equal(host.data().storage[LOCALE_KEY], 'fr')
+
+  // Nouveau worker sur le même stockage, aucun panneau : il parle toujours français.
+  const second = await mountBare(host)
+  assert.equal(await second.command('agentProfiles.relaunchLast'), 'Aucun profil lancé pour l\'instant.')
+  await second.request('locale.set', { locale: 'en-US' })
+  await second.deactivate()
+  assert.equal(host.data().storage[LOCALE_KEY], 'en')
+
+  const third = await mountBare(host)
+  assert.equal(await third.command('agentProfiles.relaunchLast'), 'No profile launched yet.')
+  await third.deactivate()
+
+  // La langue ne touche ni au store v2 ni au store v1.
+  assert.deepEqual(host.data().storage[STORE_KEY], SAMPLE_STORE)
+  assert.deepEqual(host.data().storage['store.v1'], legacy)
+  assert.notEqual(LOCALE_KEY, STORE_KEY)
+})
+
+test('an unreadable stored language falls back to English and is replaced on the next announcement', async () => {
+  const host = mockHost({ storage: { [LOCALE_KEY]: 'klingon' } })
+  const worker = await mountBare(host)
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), 'No profile launched yet.')
+  await worker.request('locale.set', { locale: 'en-US' })
+  assert.equal(host.data().storage[LOCALE_KEY], 'en')
   await worker.deactivate()
 })

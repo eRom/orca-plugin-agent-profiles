@@ -1,17 +1,27 @@
 import { assert, test } from 'orca/testing'
-import { COPY } from './copy'
+import { MESSAGES } from './copy'
 import {
   formatEnvLines,
   isEnvReference,
-  parseEnvLines,
+  parseEnvLines as parseEnvLinesIn,
   parseStore,
   removeProfile,
-  removeProvider,
+  removeProvider as removeProviderIn,
   upsertProvider,
-  validateProfile,
-  validateProvider
+  validateProfile as validateProfileIn,
+  validateProvider as validateProviderIn,
+  type Profile,
+  type Provider,
+  type Store
 } from './store'
 import { ARGON, DEEPSEEK, HARNESS, LUNA, OPUS, SAMPLE_STORE } from './test-fixtures'
+
+// Les assertions historiques portent sur le français ; les cas anglais sont en fin de fichier.
+const COPY = MESSAGES.fr
+const validateProfile = (store: Store, draft: Profile) => validateProfileIn(store, draft, COPY)
+const validateProvider = (store: Store, draft: Provider) => validateProviderIn(store, draft, COPY)
+const removeProvider = (store: Store, providerId: string) => removeProviderIn(store, providerId, COPY)
+const parseEnvLines = (text: string) => parseEnvLinesIn(text, COPY)
 
 test('parses a v2 store and rejects a v1 one', () => {
   assert.deepEqual(parseStore(SAMPLE_STORE), SAMPLE_STORE)
@@ -98,4 +108,18 @@ test('environment lines parse, report the bad line, and round-trip', () => {
   assert.deepEqual(parseEnvLines('A=1\nNOEQUALS'), { error: 'Ligne 2 : forme attendue NOM=valeur.' })
   assert.deepEqual(parseEnvLines('1A=x'), { error: 'Ligne 1 : forme attendue NOM=valeur.' })
   assert.deepEqual(parseEnvLines(formatEnvLines({ A: '1', B: 'x=y' })), { env: { A: '1', B: 'x=y' } })
+})
+
+test('validations speak the language they are given, and only that one', () => {
+  const draft: Provider = { ...SAMPLE_STORE.providers[0]!, name: '', baseUrl: 'localhost:11434', token: '' }
+  assert.deepEqual(validateProviderIn(SAMPLE_STORE, draft, MESSAGES.en), {
+    name: 'Name is required.',
+    baseUrl: 'The URL must start with http:// or https://.',
+    token: 'Token is required.'
+  })
+  assert.deepEqual(validateProfileIn(SAMPLE_STORE, { ...ARGON, id: 'x', name: 'Argon' }, MESSAGES.en), {
+    name: 'Name already used for this agent.'
+  })
+  assert.deepEqual(removeProviderIn(SAMPLE_STORE, 'ollama', MESSAGES.en), { error: 'Used by: DeepSeek 4.1 Flash.' })
+  assert.deepEqual(parseEnvLinesIn('A=1\nNOEQUALS', MESSAGES.en), { error: 'Line 2: expected NAME=value.' })
 })

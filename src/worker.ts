@@ -4,7 +4,7 @@
 import type { OrcaWorkerApi } from 'orca/worker'
 import { agentById } from './agents'
 import { listAvatarFiles, pluginDirectory } from './avatars'
-import { COPY } from './copy'
+import { localeOf, MESSAGES, type Locale, type Messages } from './copy'
 import { detectAgents, enabledAgents, REAL_INVENTORY_DEPS, type Inventory, type InventoryDeps } from './inventory'
 import { applyProfile, findProfileByModel, readFlag } from './launch'
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
@@ -29,6 +29,9 @@ import {
 const PENDING_TTL_MS = 15_000
 /** Âge maximal d'un inventaire servi par `agents.list` sans nouvelle sonde. */
 const INVENTORY_TTL_MS = 10_000
+
+/** Clé de stockage de la dernière langue annoncée par un panneau : distincte de celle du store, qui ne change pas de forme. */
+export const LOCALE_KEY = 'ui.locale'
 
 type Source = 'panel' | 'relaunch'
 type Pending = { profileId: string; agentId: string; source: Source; at: number }
@@ -58,6 +61,11 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   /** Numéro de la dernière sonde lancée : une sonde plus ancienne qui finit après ne doit rien écrire. */
   let generation = 0
   let settingsReadable: boolean | null = null
+  /** Langue des messages du worker (refus, validations, retour de commande) ; celle du dernier panneau monté. */
+  let locale: Locale = 'en'
+  /** Valeur présente dans le stockage, pour n'écrire que lorsqu'elle change. */
+  let storedLocale: Locale | null = null
+  const m = (): Messages => MESSAGES[locale]
 
   /** Lit le store ; absent, il est créé vide ; illisible, il est copié de côté avant d'être remplacé. */
   async function load(): Promise<void> {
@@ -76,7 +84,16 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     store = EMPTY_STORE
   }
 
-  const ready = load()
+  /** Langue relue au démarrage : anglais tant qu'aucun panneau n'en a annoncé une, puis la dernière vue. */
+  async function loadLocale(): Promise<void> {
+    const raw = await orca.storage.get(LOCALE_KEY)
+    if (raw === 'en' || raw === 'fr') {
+      locale = raw
+      storedLocale = raw
+    }
+  }
+
+  const ready = Promise.all([load(), loadLocale()]).then(() => undefined)
 
   /** Sonde les agents activés ; poste `agents.changed` si la liste ou la lisibilité des réglages a bougé. */
   function probe(): Promise<Inventory> {
@@ -127,12 +144,12 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   const save = <T extends Profile | Provider>(
     draft: T,
     kind: 'profile' | 'provider',
-    validate: (current: Store, draft: T) => FieldErrors,
+    validate: (current: Store, draft: T, messages: Messages) => FieldErrors,
     upsert: (current: Store, item: T) => Store
   ): Promise<SaveResult> =>
     serialize(async () => {
       await ready
-      const errors = validate(store, draft)
+      const errors = validate(store, draft, m())
       if (Object.keys(errors).length > 0) return { ok: false, errors }
       const id = draft.id === '' ? newId(kind) : draft.id
       return { ok: true, store: await commit(upsert(store, { ...draft, id })) }
@@ -152,10 +169,10 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     await ready
     lastDenyReason = null
     const profile = store.profiles.find((p) => p.id === profileId)
-    if (!profile) return { ok: false, reason: COPY.profileNotFound }
-    if (!agentById(profile.agentId)) return { ok: false, reason: COPY.agentUnknown }
+    if (!profile) return { ok: false, reason: m().profileNotFound }
+    if (!agentById(profile.agentId)) return { ok: false, reason: m().agentUnknown }
     const context = await orca.host.call('workspace.readContext', {})
-    if (!context?.workspaceId) return { ok: false, reason: COPY.noWorkspace }
+    if (!context?.workspaceId) return { ok: false, reason: m().noWorkspace }
 
     // agent.launch ne prend ni modèle ni env : le hook ci-dessous applique le profil en attente.
     pending = { profileId, agentId: profile.agentId, source, at: Date.now() }
@@ -173,7 +190,7 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     if (unconsumed) {
       // Un agent non réglé tourne avec les réglages d'Orca (pour Claude, le compte Anthropic) : le montrer.
       await focusTerminal(launched.terminalId)
-      return { ok: false, reason: profile.providerId !== null ? COPY.routingNotTaken : COPY.profileNotApplied(profile.name) }
+      return { ok: false, reason: profile.providerId !== null ? m().routingNotTaken : m().profileNotApplied(profile.name) }
     }
     await focusTerminal(launched.terminalId)
     await serialize(() => commit({ ...store, lastProfileId: profileId }))
@@ -191,6 +208,16 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
       orca.log(`focus failed terminal=${terminalId} code=${codeOf(error)}`)
     }
   }
+
+  orca.panels.handle('locale.set', async ({ locale: tag }) => {
+    await ready
+    locale = localeOf(tag)
+    if (storedLocale !== locale) {
+      await orca.storage.set(LOCALE_KEY, locale)
+      storedLocale = locale
+    }
+    return { ok: true as const }
+  })
 
   orca.panels.handle('store.get', async () => {
     await ready
@@ -218,7 +245,7 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   orca.panels.handle('profile.delete', ({ profileId }) =>
     serialize(async (): Promise<DeleteResult> => {
       await ready
-      if (!store.profiles.some((p) => p.id === profileId)) return { ok: false, error: COPY.profileNotFound }
+      if (!store.profiles.some((p) => p.id === profileId)) return { ok: false, error: m().profileNotFound }
       return { ok: true, store: await commit(removeProfile(store, profileId)) }
     })
   )
@@ -226,8 +253,8 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   orca.panels.handle('provider.delete', ({ providerId }) =>
     serialize(async (): Promise<DeleteResult> => {
       await ready
-      if (!store.providers.some((p) => p.id === providerId)) return { ok: false, error: COPY.providerNotFound }
-      const removed = removeProvider(store, providerId)
+      if (!store.providers.some((p) => p.id === providerId)) return { ok: false, error: m().providerNotFound }
+      const removed = removeProvider(store, providerId, m())
       if ('error' in removed) return { ok: false, error: removed.error }
       return { ok: true, store: await commit(removed.store) }
     })
@@ -247,13 +274,13 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   orca.commands.register('agentProfiles.relaunchLast', async () => {
     await ready
     const profile = store.profiles.find((p) => p.id === store.lastProfileId)
-    if (!profile) return COPY.noLastProfile
+    if (!profile) return m().noLastProfile
     const spec = agentById(profile.agentId)
     // Les réglages d'Orca sont relus à chaque relance (synchrone, sans shell) ; une sonde n'est attendue que si aucune n'a abouti.
     const enabled = lastFound ? enabledAgents(lastFound, deps.readSettings()) : (await listInventory()).agents
-    if (spec && !enabled.includes(spec.id)) return COPY.agentDisabled(spec.label)
+    if (spec && !enabled.includes(spec.id)) return m().agentDisabled(spec.label)
     const result = await launchProfile(profile.id, 'relaunch')
-    return result.ok ? COPY.launched(profile.name) : result.reason
+    return result.ok ? m().launched(profile.name) : result.reason
   })
 
   orca.hooks.on('agent.launch.before', async (event, next) => {
@@ -271,7 +298,7 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
       profile = store.profiles.find((p) => p.id === fromPending.profileId)
       if (!profile) {
         // Le profil choisi dans le panneau a disparu du store : jamais de passage silencieux vers les réglages d'Orca.
-        lastDenyReason = COPY.profileNotFound
+        lastDenyReason = m().profileNotFound
         orca.log(`deny profile=${fromPending.profileId} reason=missing`)
         return { deny: lastDenyReason }
       }
@@ -288,12 +315,12 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
       return { deny: reason }
     }
     const spec = agentById(chosen.agentId)
-    if (!spec) return deny(COPY.agentUnknown, 'agent-unknown')
+    if (!spec) return deny(m().agentUnknown, 'agent-unknown')
     // Le store vient d'un stockage non fiable (éditions à la main) : on revérifie ici ce que validateProfile garantit à l'écriture.
-    if (chosen.providerId !== null && !spec.supportsProvider) return deny(COPY.providerClaudeOnly, 'provider-claude-only')
-    if (chosen.providerId !== null && chosen.model === null) return deny(COPY.modelRequired, 'model-required')
+    if (chosen.providerId !== null && !spec.supportsProvider) return deny(m().providerClaudeOnly, 'provider-claude-only')
+    if (chosen.providerId !== null && chosen.model === null) return deny(m().modelRequired, 'model-required')
     const provider = chosen.providerId === null ? null : store.providers.find((p) => p.id === chosen.providerId)
-    if (provider === undefined) return deny(COPY.profileProviderMissing(chosen.name), 'provider-missing')
+    if (provider === undefined) return deny(m().profileProviderMissing(chosen.name), 'provider-missing')
 
     const applied = applyProfile(event, spec, chosen, provider)
     orca.log(`profile=${chosen.id} agent=${chosen.agentId} via=${fromPending?.source ?? 'model-flag'}`)

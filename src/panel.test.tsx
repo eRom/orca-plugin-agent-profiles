@@ -1,11 +1,13 @@
 // Le panneau Agents tourne ici avec le vrai runtime d'Orca ; le worker est remplacé par des réponses simulées.
 import { assert, mockHost, mount, test } from 'orca/testing'
-import { COPY } from './copy'
+import { MESSAGES } from './copy'
 import type { Inventory } from './inventory'
 import * as panel from './panel'
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
 import type { Profile, Provider, Store } from './store'
 import { ENABLED, LUNA, OPUS, SAMPLE_STORE } from './test-fixtures'
+
+const COPY = MESSAGES.fr
 
 type Context = { workspaceId: string; branch: string; displayName: string; terminals: [] } | null
 
@@ -27,18 +29,25 @@ type Setup = {
   /** Ce qu'une session précédente a mémorisé (atomes `persist: 'plugin'`). */
   persisted?: { plugin?: Record<string, unknown> }
   theme?: 'light' | 'dark'
+  /** Langue d'Orca, BCP-47 ; français par défaut ici, la plupart des assertions historiques étant en français. */
+  locale?: string
 }
 
 async function open(setup: Setup = {}) {
   const state = { context: setup.context === undefined ? focused : setup.context }
   const launches: string[] = []
   const refreshes: number[] = []
+  const announcedLocales: string[] = []
   const profileSaves: Profile[] = []
   const providerSaves: Provider[] = []
   const store = setup.store ?? SAMPLE_STORE
   const inventory = setup.inventory ?? ENABLED
   const host = mockHost({
     requests: {
+      'locale.set': (input) => {
+        announcedLocales.push(input.locale)
+        return { ok: true }
+      },
       'store.get': setup.storeGet ?? (() => store),
       'agents.list': setup.agentsList ?? (() => inventory),
       'agents.refresh': () => {
@@ -63,8 +72,8 @@ async function open(setup: Setup = {}) {
     },
     results: { 'workspace.readContext': () => state.context }
   })
-  const view = await mount(panel, { host, persisted: setup.persisted, theme: setup.theme })
-  return { view, state, launches, refreshes, profileSaves, providerSaves }
+  const view = await mount(panel, { host, persisted: setup.persisted, theme: setup.theme, locale: setup.locale ?? 'fr-FR' })
+  return { view, state, launches, refreshes, announcedLocales, profileSaves, providerSaves }
 }
 
 type View = Awaited<ReturnType<typeof open>>['view']
@@ -738,4 +747,137 @@ test('shows the provider field error the worker returns when no provider exists'
   await view.press({ text: 'Enregistrer' })
   assert.notEqual(view.find({ text: COPY.providerNotFound }), null)
   await expectClean(view)
+})
+
+// Langue d'affichage (AC-3) : les libellés anglais sont écrits en clair, pas lus dans le dictionnaire, pour que le test morde.
+
+test('announces Orca\'s language to the worker once, before anything else is asked', async () => {
+  const { view, announcedLocales } = await open({ locale: 'de-DE' })
+  assert.deepEqual(announcedLocales, ['de-DE'])
+  await expectClean(view)
+})
+
+test('draws the list in English for en-US and any language Orca offers besides French', async () => {
+  for (const locale of ['en-US', 'de-DE']) {
+    const { view } = await open({ locale, store: { ...SAMPLE_STORE, lastProfileId: 'luna' } })
+    assert.notEqual(view.find({ label: 'New Claude profile' }), null, locale)
+    assert.notEqual(view.find({ label: 'Launch Luna' }), null, locale)
+    assert.notEqual(view.find({ label: 'Edit Opus' }), null, locale)
+    assert.notEqual(view.find({ label: 'Refresh agents' }), null, locale)
+    assert.notEqual(view.find({ type: 'Badge', text: 'Last used' }), null, locale)
+    assert.notEqual(view.find({ text: 'Providers' }), null, locale)
+    assert.equal(view.find({ label: 'Nouveau profil Claude' }), null, locale)
+    await expectClean(view)
+  }
+})
+
+test('draws the list in French for fr-FR and fr-CA', async () => {
+  for (const locale of ['fr-FR', 'fr-CA']) {
+    const { view } = await open({ locale })
+    assert.notEqual(view.find({ label: 'Nouveau profil Claude' }), null, locale)
+    assert.notEqual(view.find({ text: 'Fournisseurs' }), null, locale)
+    assert.equal(view.find({ label: 'New Claude profile' }), null, locale)
+    await expectClean(view)
+  }
+})
+
+test('the folded count of a group is pluralised in English', async () => {
+  const names = ['Opus', 'Sonnet']
+  const claude = SAMPLE_STORE.profiles.filter((p) => p.agentId === 'claude')
+  const store: Store = {
+    ...SAMPLE_STORE,
+    providers: [],
+    profiles: [OPUS, ...names.slice(1).map((name) => ({ ...OPUS, id: name, name })), ...SAMPLE_STORE.profiles.filter((p) => p.agentId === 'codex')]
+  }
+  assert.ok(claude.length > 0)
+  const { view } = await open({
+    locale: 'en-US',
+    store,
+    inventory: { ...ENABLED, agents: ['claude', 'codex', 'grok'] },
+    persisted: { plugin: { collapsedAgents: ['claude', 'codex', 'grok'] } }
+  })
+  assert.notEqual(view.find({ text: '2 profiles' }), null)
+  assert.notEqual(view.find({ text: '1 profile' }), null)
+  assert.notEqual(view.find({ text: 'No profiles' }), null)
+  await expectClean(view)
+})
+
+test('the profile form is in English, effort levels included', async () => {
+  const { view } = await open({ locale: 'en-US' })
+  await view.press({ label: 'Edit Opus' })
+  assert.notEqual(view.find({ type: 'Heading', text: 'Edit profile' }), null)
+  for (const label of ['Name', 'Avatar', 'Model', 'Effort', 'Provider', 'Extra arguments']) {
+    assert.notEqual(view.find({ label }), null, label)
+  }
+  assert.notEqual(view.find({ text: 'Save' }), null)
+  assert.notEqual(view.find({ text: 'Cancel' }), null)
+  assert.notEqual(view.find({ text: 'Delete' }), null)
+  const effort = view.find({ label: 'Effort' })!.props.options as { value: string; label: string }[]
+  assert.equal(effort[0]!.label, "Orca's default")
+  assert.deepEqual(
+    effort.slice(1).map((option) => option.label),
+    effort.slice(1).map((option) => ({ low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' })[option.value])
+  )
+  const provider = view.find({ label: 'Provider' })!.props.options as { value: string; label: string }[]
+  assert.equal(provider[0]!.label, 'None (Anthropic account)')
+  await expectClean(view)
+})
+
+test('an agent icon is labelled in English in the avatar list', async () => {
+  const { view } = await open({ locale: 'en-US', avatars: ['avatars/deepseek.png', 'agent-icons/claude.png'] })
+  await view.press({ label: 'New Claude profile' })
+  const options = view.find({ label: 'Avatar' })!.props.options as { value: string; label: string }[]
+  assert.deepEqual(options.map((option) => option.label), ['None', 'deepseek', 'claude (agent icon)'])
+  await expectClean(view)
+})
+
+test('the provider form is in English, with its own validation message', async () => {
+  const { view, providerSaves } = await open({ locale: 'en-US' })
+  await view.press({ label: 'New provider' })
+  assert.notEqual(view.find({ type: 'Heading', text: 'New provider' }), null)
+  for (const label of ['Name', 'Base URL', 'Token', 'Extra variables']) {
+    assert.notEqual(view.find({ label }), null, label)
+  }
+  await view.type({ label: 'Extra variables' }, 'NOEQUALS')
+  await view.press({ text: 'Save' })
+  assert.deepEqual(providerSaves, [])
+  assert.notEqual(view.find({ text: 'Line 1: expected NAME=value.' }), null)
+  await view.type({ label: 'Token' }, 'sk-0123456789abcdef')
+  assert.notEqual(view.find({ text: 'Token stored in plain text in the plugin; prefer a $NAME reference.' }), null)
+  await expectClean(view)
+})
+
+test('the empty and error states are in English', async () => {
+  const noAgents = await open({ locale: 'en-US', inventory: { ...ENABLED, agents: [] } })
+  assert.notEqual(noAgents.view.find({ label: 'No agents enabled' }), null)
+  assert.equal(noAgents.view.find({ type: 'EmptyState' })?.props.description, 'Enable an agent in Orca settings (Agents).')
+  await expectClean(noAgents.view)
+
+  const noWorkspace = await open({ locale: 'en-US', context: null })
+  assert.notEqual(noWorkspace.view.find({ text: 'Open a workspace to launch a profile.' }), null)
+  await expectClean(noWorkspace.view)
+
+  const failing = await open({
+    locale: 'en-US',
+    agentsList: () => {
+      throw new Error('boom')
+    }
+  })
+  assert.notEqual(failing.view.find({ label: "Couldn't detect agents" }), null)
+  assert.notEqual(failing.view.find({ text: 'Retry' }), null)
+  await expectClean(failing.view)
+})
+
+test('the alphabetical order follows the display language, not French', async () => {
+  // En suédois « Ä » vient après « Z » ; en français et en anglais il se range avec « A ».
+  const store: Store = { ...SAMPLE_STORE, providers: [], profiles: ['Zed', 'Äpple'].map((name) => ({ ...OPUS, id: name, name })) }
+  const order = async (locale: string) => {
+    const { view } = await open({ locale, store })
+    const labels = view.findAll({ type: 'IconButton', label: /^(Modifier|Edit|Ändra) / }).map((button) => button.label)
+    await expectClean(view)
+    return labels
+  }
+  assert.deepEqual(await order('sv-SE'), ['Edit Zed', 'Edit Äpple'])
+  assert.deepEqual(await order('en-US'), ['Edit Äpple', 'Edit Zed'])
+  assert.deepEqual(await order('fr-FR'), ['Modifier Äpple', 'Modifier Zed'])
 })
