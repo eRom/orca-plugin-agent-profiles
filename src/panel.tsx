@@ -8,6 +8,7 @@ import {
   Callout,
   Code,
   EmptyState,
+  env,
   host,
   IconButton,
   Image,
@@ -25,6 +26,7 @@ import {
 } from 'orca'
 import { agentById, type AgentSpec } from './agents'
 import { COPY } from './copy'
+import { themedIcon } from './icons'
 import type { Inventory } from './inventory'
 import { openProfileForm, profileForm, renderProfileForm } from './profile-form'
 import { openProviderForm, providerForm, renderProviderForm } from './provider-form'
@@ -190,7 +192,11 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
           donc ▷ et ✎ restent alignés en colonne quelle que soit la longueur du texte. */}
       <Box key={`text-${profile.id}`} direction="row" align="center" gap="sm" grow minWidth={0}>
         <Box key={`lead-${profile.id}`} width={LEAD_SLOT_WIDTH} shrink={false} align="center" justify="center">
-          {profile.avatar ? <Image src={profile.avatar} alt="" size="xs" rounded /> : renderMonogram(profile.name)}
+          {profile.avatar ? (
+            <Image src={themedIcon(profile.avatar, env.theme.colorScheme)} alt="" size="xs" rounded />
+          ) : (
+            renderMonogram(profile.name)
+          )}
         </Box>
         <Box key={`lines-${profile.id}`} grow minWidth={0}>
           <Row align="center" gap="xs">
@@ -245,7 +251,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
             onPress={() => toggleGroup(spec.id)}
           />
           <Box key={`lead-agent-${spec.id}`} width={LEAD_SLOT_WIDTH / 2} shrink={false} align="center" justify="center">
-            <Image src={spec.icon} alt="" size="xs" />
+            <Image src={themedIcon(spec.icon, env.theme.colorScheme)} alt="" size="xs" />
           </Box>
           <Text weight="semibold" truncate>
             {spec.label}

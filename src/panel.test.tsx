@@ -5,7 +5,7 @@ import type { Inventory } from './inventory'
 import * as panel from './panel'
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
 import type { Profile, Provider, Store } from './store'
-import { ENABLED, OPUS, SAMPLE_STORE } from './test-fixtures'
+import { ENABLED, LUNA, OPUS, SAMPLE_STORE } from './test-fixtures'
 
 type Context = { workspaceId: string; branch: string; displayName: string; terminals: [] } | null
 
@@ -26,6 +26,7 @@ type Setup = {
   avatars?: string[]
   /** Ce qu'une session précédente a mémorisé (atomes `persist: 'plugin'`). */
   persisted?: { plugin?: Record<string, unknown> }
+  theme?: 'light' | 'dark'
 }
 
 async function open(setup: Setup = {}) {
@@ -62,7 +63,7 @@ async function open(setup: Setup = {}) {
     },
     results: { 'workspace.readContext': () => state.context }
   })
-  const view = await mount(panel, { host, persisted: setup.persisted })
+  const view = await mount(panel, { host, persisted: setup.persisted, theme: setup.theme })
   return { view, state, launches, refreshes, profileSaves, providerSaves }
 }
 
@@ -319,6 +320,51 @@ test('shows each group header with the icon of its agent', async () => {
   const { view } = await open()
   const icons = view.findAll({ type: 'Image' }).map((image) => image.props.src)
   for (const id of ENABLED.agents) assert.ok(icons.includes(`agent-icons/${id}.png`), `icône de ${id}`)
+  await expectClean(view)
+})
+
+/** Chemins des images du panneau : en-têtes de groupe (tous) et avatars de profil. */
+function imageSources(view: View): string[] {
+  return view.findAll({ type: 'Image' }).map((image) => String(image.props.src))
+}
+
+/** Codex (en-tête de groupe + avatar d'un profil) et Kilo (idem), pour juger la variante choisie par thème. */
+const ICON_STORE: Store = {
+  ...SAMPLE_STORE,
+  profiles: [
+    { ...LUNA, avatar: 'agent-icons/codex.png' },
+    { ...LUNA, id: 'kilo-profile', agentId: 'kilo', name: 'Kilo profile', avatar: 'agent-icons/kilo.png' }
+  ]
+}
+const ICON_INVENTORY: Inventory = { ...ENABLED, agents: ['claude', 'codex', 'kilo'] }
+
+test('in the light theme, Codex uses its light-theme variant for the group header and the profile avatar, and Kilo keeps its base icon', async () => {
+  const { view } = await open({ theme: 'light', store: ICON_STORE, inventory: ICON_INVENTORY })
+  const sources = imageSources(view)
+  assert.equal(sources.filter((src) => src === 'agent-icons/on-light/codex.png').length, 2, 'group header and avatar')
+  assert.ok(!sources.includes('agent-icons/codex.png'))
+  assert.equal(sources.filter((src) => src === 'agent-icons/kilo.png').length, 2, 'group header and avatar')
+  assert.ok(!sources.some((src) => src.includes('on-dark')))
+  assert.ok(sources.includes('agent-icons/claude.png'), 'an icon without variant stays the base one')
+  await expectClean(view)
+})
+
+test('in the dark theme, Kilo uses its dark-theme variant for the group header and the profile avatar, and Codex keeps its base icon', async () => {
+  const { view } = await open({ theme: 'dark', store: ICON_STORE, inventory: ICON_INVENTORY })
+  const sources = imageSources(view)
+  assert.equal(sources.filter((src) => src === 'agent-icons/on-dark/kilo.png').length, 2, 'group header and avatar')
+  assert.ok(!sources.includes('agent-icons/kilo.png'))
+  assert.equal(sources.filter((src) => src === 'agent-icons/codex.png').length, 2, 'group header and avatar')
+  assert.ok(!sources.some((src) => src.includes('on-light')))
+  await expectClean(view)
+})
+
+test('switching the theme swaps the icons without remounting', async () => {
+  const { view } = await open({ theme: 'dark', store: ICON_STORE, inventory: ICON_INVENTORY })
+  assert.ok(imageSources(view).includes('agent-icons/codex.png'))
+  await view.emit('theme', { colorScheme: 'light' })
+  assert.ok(imageSources(view).includes('agent-icons/on-light/codex.png'))
+  assert.ok(!imageSources(view).includes('agent-icons/codex.png'))
   await expectClean(view)
 })
 
