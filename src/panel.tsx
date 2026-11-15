@@ -133,6 +133,8 @@ export function setup(ctx: PanelContext): void {
   ctx.subscriptions.push(plugin.on('agents.changed', applyInventory))
   ctx.subscriptions.push(on('workspace.changed', (payload) => applyContext(payload.context)))
   // D'abord : le worker n'a pas de locale, il parle la dernière annoncée (validations, refus du hook, relance).
+  // Un échec est sans gravité : le worker garde la dernière langue reçue (l'anglais par défaut), et ses autres
+  // réponses échoueraient visiblement s'il était injoignable.
   void plugin.request('locale.set', { locale: env.locale }).catch(() => undefined)
   void readContext()
   void loadStore()
