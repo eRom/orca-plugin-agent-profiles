@@ -25,7 +25,8 @@ test('every variant file on disk is declared in the table', () => {
     for (const variantFolder of readdirSync(root).filter((name) => name.startsWith('on-') && !name.includes('.'))) {
       const scheme = variantFolder.slice('on-'.length)
       assert.ok(SCHEMES.includes(scheme as ColorScheme), `${folder}/${variantFolder} is a known theme folder`)
-      for (const file of readdirSync(join(root, variantFolder))) {
+      // Seuls les PNG comptent : Finder sème un `.DS_Store` dans tout dossier ouvert.
+      for (const file of readdirSync(join(root, variantFolder)).filter((name) => name.endsWith('.png'))) {
         assert.ok(ICON_VARIANTS[scheme as ColorScheme].includes(`${folder}/${file}`), `${folder}/${variantFolder}/${file} is declared`)
       }
     }

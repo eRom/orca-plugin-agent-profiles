@@ -6,6 +6,11 @@ export default defineCheck({
   seeded: {
     results: { 'workspace.readContext': { workspaceId: 'w1', branch: 'main', displayName: 'w1', terminals: [] } }
   },
+  // Thème clair : c'est lui qui sert les variantes d'icônes `on-light/`.
+  seededLight: {
+    theme: 'light',
+    results: { 'workspace.readContext': { workspaceId: 'w1', branch: 'main', displayName: 'w1', terminals: [] } }
+  },
   noWorkspace: {
     results: { 'workspace.readContext': null }
   }

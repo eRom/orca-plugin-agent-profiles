@@ -33,7 +33,7 @@ Orca shows the access the plugin asks for (see [What it can access](#what-it-can
 - **Relaunch the last profile** with `Mod+Alt+L` or the command *Agents: relaunch last profile*, whatever its agent.
 - **Avatars**: bundled agent icons and model brand icons, picked in the profile form.
 
-The interface follows Orca's language: French when Orca is set to French, English otherwise.
+The panel follows Orca's language: French when Orca is set to French, English otherwise (English and French are the two interface languages). Orca hands a panel its language only when the panel opens, so after changing Orca's language, close and reopen the panel to switch. The shortcut's messages and the launch refusals use the language the panel last saw, which is English until the panel has been opened once.
 
 ## How routing works
 

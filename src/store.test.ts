@@ -120,6 +120,6 @@ test('validations speak the language they are given, and only that one', () => {
   assert.deepEqual(validateProfileIn(SAMPLE_STORE, { ...ARGON, id: 'x', name: 'Argon' }, MESSAGES.en), {
     name: 'Name already used for this agent.'
   })
-  assert.deepEqual(removeProviderIn(SAMPLE_STORE, 'ollama', MESSAGES.en), { error: 'Used by: DeepSeek 4.1 Flash.' })
+  assert.deepEqual(removeProviderIn(SAMPLE_STORE, 'ollama', MESSAGES.en), { error: 'Still used by: DeepSeek 4.1 Flash.' })
   assert.deepEqual(parseEnvLinesIn('A=1\nNOEQUALS', MESSAGES.en), { error: 'Line 2: expected NAME=value.' })
 })

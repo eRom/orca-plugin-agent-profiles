@@ -33,6 +33,8 @@ export type Messages = {
   profileProviderMissing: (name: string) => string
   launched: (name: string) => string
   literalToken: string
+  /** Inséré dans `${NOM:?…}` du shell : ni `"`, ni `}`, ni `$`, ni accent grave, ni antislash. */
+  envMissing: string
 
   // Panneau : groupes par agent, fournisseurs, états.
   tabProviders: string
@@ -108,6 +110,7 @@ const fr: Messages = {
   profileProviderMissing: (name) => `« ${name} » : fournisseur introuvable.`,
   launched: (name) => `« ${name} » lancé.`,
   literalToken: 'Jeton stocké en clair dans le plugin ; préfère une référence $NOM.',
+  envMissing: 'absente du shell, exporte-la dans ~/.zshenv',
 
   tabProviders: 'Fournisseurs',
   newProfileFor: (label) => `Nouveau profil ${label}`,
@@ -180,7 +183,7 @@ const en: Messages = {
   baseUrlNoV1: 'Leave out the trailing /v1: Claude Code adds /v1/messages.',
   tokenRequired: 'Token is required.',
   envLine: (line) => `Line ${line}: expected NAME=value.`,
-  providerInUse: (names) => `Used by: ${names}.`,
+  providerInUse: (names) => `Still used by: ${names}.`,
   noWorkspace: 'Open a workspace to launch a profile.',
   routingNotTaken: "Routing didn't apply: this Claude is using your Anthropic account. Close it.",
   noLastProfile: 'No profile launched yet.',
@@ -190,6 +193,7 @@ const en: Messages = {
   profileProviderMissing: (name) => `"${name}": provider not found.`,
   launched: (name) => `"${name}" launched.`,
   literalToken: 'Token stored in plain text in the plugin; prefer a $NAME reference.',
+  envMissing: 'missing from the shell, export it in ~/.zshenv',
 
   tabProviders: 'Providers',
   newProfileFor: (label) => `New ${label} profile`,
@@ -209,7 +213,7 @@ const en: Messages = {
   detectingAgents: 'Detecting agents',
   detectFailedTitle: "Couldn't detect agents",
   noAgentTitle: 'No agents enabled',
-  noAgentHint: 'Enable an agent in Orca settings (Agents).',
+  noAgentHint: "Enable an agent in Orca's settings (Agents).",
   settingsUnreadable: "Couldn't read Orca's settings: showing all installed agents.",
   launchFailedTitle: "Couldn't launch",
   loading: 'Loading',

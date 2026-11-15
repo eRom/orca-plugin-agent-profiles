@@ -4,7 +4,7 @@
 import type { OrcaWorkerApi } from 'orca/worker'
 import { agentById } from './agents'
 import { listAvatarFiles, pluginDirectory } from './avatars'
-import { localeOf, MESSAGES, type Locale, type Messages } from './copy'
+import { LOCALES, localeOf, MESSAGES, type Locale, type Messages } from './copy'
 import { detectAgents, enabledAgents, REAL_INVENTORY_DEPS, type Inventory, type InventoryDeps } from './inventory'
 import { applyProfile, findProfileByModel, readFlag } from './launch'
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
@@ -86,10 +86,16 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
 
   /** Langue relue au démarrage : anglais tant qu'aucun panneau n'en a annoncé une, puis la dernière vue. */
   async function loadLocale(): Promise<void> {
-    const raw = await orca.storage.get(LOCALE_KEY)
-    if (raw === 'en' || raw === 'fr') {
-      locale = raw
-      storedLocale = raw
+    try {
+      const raw = await orca.storage.get(LOCALE_KEY)
+      const known = LOCALES.find((candidate) => candidate === raw)
+      if (known) {
+        locale = known
+        storedLocale = known
+      }
+    } catch (error) {
+      // Appel best effort : une lecture refusée laisse l'anglais, elle ne doit pas empêcher l'activation.
+      orca.log(`locale read failed code=${codeOf(error)}`)
     }
   }
 
@@ -322,7 +328,7 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     const provider = chosen.providerId === null ? null : store.providers.find((p) => p.id === chosen.providerId)
     if (provider === undefined) return deny(m().profileProviderMissing(chosen.name), 'provider-missing')
 
-    const applied = applyProfile(event, spec, chosen, provider)
+    const applied = applyProfile(event, spec, chosen, provider, m())
     orca.log(`profile=${chosen.id} agent=${chosen.agentId} via=${fromPending?.source ?? 'model-flag'}`)
     return next({ ...event, ...applied })
   })

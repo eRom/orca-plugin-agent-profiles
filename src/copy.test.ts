@@ -35,6 +35,15 @@ test('no text is empty and none carries an em dash, in any language', () => {
   }
 })
 
+test('the missing-variable text can be spliced into a shell parameter expansion in every language', () => {
+  for (const locale of LOCALES) {
+    const text = MESSAGES[locale].envMissing
+    assert.ok(text.trim() !== '', `${locale}: empty`)
+    // Ces caractères fermeraient l'expansion `"${NOM:?…}"` ou en ouvriraient une autre.
+    for (const forbidden of ['"', '}', '$', '`', '\\']) assert.ok(!text.includes(forbidden), `${locale}: "${forbidden}" in "${text}"`)
+  }
+})
+
 test('the profile count is pluralised correctly in each language', () => {
   assert.deepEqual([0, 1, 2, 12].map(MESSAGES.en.profileCount), ['No profiles', '1 profile', '2 profiles', '12 profiles'])
   assert.deepEqual([0, 1, 2, 12].map(MESSAGES.fr.profileCount), ['Aucun profil', '1 profil', '2 profils', '12 profils'])

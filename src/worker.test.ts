@@ -831,6 +831,44 @@ test('the last announced language survives a worker restart, in its own storage 
   assert.notEqual(LOCALE_KEY, STORE_KEY)
 })
 
+test('a language announced while the storage is still being read wins over the stored one', async () => {
+  // Une lecture lente rend « en » : l'annonce « fr » du panneau, arrivée entre-temps, est plus récente et doit rester.
+  const host = mockHost({
+    results: {
+      'storage.get': async (params: unknown) => {
+        await pause(60)
+        return { value: (params as { key: string }).key === LOCALE_KEY ? 'en' : null }
+      }
+    }
+  })
+  // Comme Orca : les gestionnaires sont enregistrés pendant l'activation, et une requête peut déjà arriver.
+  const worker = await mountWorker(
+    { default: (orca) => { void activateWith(orca, fakeDeps().deps); return Promise.resolve() } },
+    { host }
+  )
+  await worker.request('locale.set', { locale: 'fr-FR' })
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), MESSAGES.fr.noLastProfile)
+  assert.equal(host.data().storage[LOCALE_KEY], 'fr')
+  await worker.deactivate()
+})
+
+test('a failing read of the stored language falls back to English, is logged with its code, and does not break activation', async () => {
+  const host = mockHost({
+    results: {
+      'storage.get': (params: unknown) => {
+        if ((params as { key: string }).key === LOCALE_KEY) throw hostError('unavailable', 'storage busy')
+        return { value: null }
+      }
+    }
+  })
+  const worker = await mountBare(host)
+  assert.equal(await worker.command('agentProfiles.relaunchLast'), MESSAGES.en.noLastProfile)
+  assert.ok(worker.logs.includes('locale read failed code=unavailable'), worker.logs.join('|'))
+  // Le store, lui, est chargé normalement.
+  assert.deepEqual(await worker.request('store.get'), EMPTY_STORE)
+  await worker.deactivate()
+})
+
 test('an unreadable stored language falls back to English and is replaced on the next announcement', async () => {
   const host = mockHost({ storage: { [LOCALE_KEY]: 'klingon' } })
   const worker = await mountBare(host)

@@ -42,38 +42,46 @@ async function open(setup: Setup = {}) {
   const providerSaves: Provider[] = []
   const store = setup.store ?? SAMPLE_STORE
   const inventory = setup.inventory ?? ENABLED
+  /** Nom de chaque requête reçue par le worker simulé, dans l'ordre d'arrivée. */
+  const requestOrder: string[] = []
+  const track =
+    <I, O>(name: string, handler: (input: I) => O) =>
+    (input: I): O => {
+      requestOrder.push(name)
+      return handler(input)
+    }
   const host = mockHost({
     requests: {
-      'locale.set': (input) => {
+      'locale.set': track('locale.set', (input: { locale: string }) => {
         announcedLocales.push(input.locale)
-        return { ok: true }
-      },
-      'store.get': setup.storeGet ?? (() => store),
-      'agents.list': setup.agentsList ?? (() => inventory),
-      'agents.refresh': () => {
+        return { ok: true as const }
+      }),
+      'store.get': track('store.get', setup.storeGet ?? (() => store)),
+      'agents.list': track('agents.list', setup.agentsList ?? (() => inventory)),
+      'agents.refresh': track('agents.refresh', () => {
         refreshes.push(1)
         return setup.agentsRefresh ? setup.agentsRefresh() : inventory
-      },
-      'avatars.list': () => ({ files: setup.avatars ?? ['avatars/deepseek.png', 'avatars/qwen.png'] }),
-      'profile.launch': (input) => {
+      }),
+      'avatars.list': track('avatars.list', () => ({ files: setup.avatars ?? ['avatars/deepseek.png', 'avatars/qwen.png'] })),
+      'profile.launch': track('profile.launch', (input: { profileId: string }) => {
         launches.push(input.profileId)
-        return setup.launch ? setup.launch(input) : { ok: true }
-      },
-      'profile.save': (input) => {
+        return setup.launch ? setup.launch(input) : { ok: true as const }
+      }),
+      'profile.save': track('profile.save', (input: { profile: Profile }) => {
         profileSaves.push(input.profile)
-        return setup.saveProfile ? setup.saveProfile(input) : { ok: true, store }
-      },
-      'provider.save': (input) => {
+        return setup.saveProfile ? setup.saveProfile(input) : { ok: true as const, store }
+      }),
+      'provider.save': track('provider.save', (input: { provider: Provider }) => {
         providerSaves.push(input.provider)
-        return setup.saveProvider ? setup.saveProvider(input) : { ok: true, store }
-      },
-      'profile.delete': setup.deleteProfile ?? (() => ({ ok: true, store })),
-      'provider.delete': setup.deleteProvider ?? (() => ({ ok: true, store }))
+        return setup.saveProvider ? setup.saveProvider(input) : { ok: true as const, store }
+      }),
+      'profile.delete': track('profile.delete', setup.deleteProfile ?? (() => ({ ok: true as const, store }))),
+      'provider.delete': track('provider.delete', setup.deleteProvider ?? (() => ({ ok: true as const, store })))
     },
     results: { 'workspace.readContext': () => state.context }
   })
   const view = await mount(panel, { host, persisted: setup.persisted, theme: setup.theme, locale: setup.locale ?? 'fr-FR' })
-  return { view, state, launches, refreshes, announcedLocales, profileSaves, providerSaves }
+  return { view, state, launches, refreshes, announcedLocales, requestOrder, profileSaves, providerSaves }
 }
 
 type View = Awaited<ReturnType<typeof open>>['view']
@@ -752,8 +760,11 @@ test('shows the provider field error the worker returns when no provider exists'
 // Langue d'affichage (AC-3) : les libellés anglais sont écrits en clair, pas lus dans le dictionnaire, pour que le test morde.
 
 test('announces Orca\'s language to the worker once, before anything else is asked', async () => {
-  const { view, announcedLocales } = await open({ locale: 'de-DE' })
+  const { view, announcedLocales, requestOrder } = await open({ locale: 'de-DE' })
   assert.deepEqual(announcedLocales, ['de-DE'])
+  // Le worker doit connaître la langue avant toute autre demande : ses refus et validations en dépendent.
+  assert.equal(requestOrder[0], 'locale.set')
+  assert.ok(requestOrder.length > 1, 'the panel asked for its data after announcing the language')
   await expectClean(view)
 })
 
@@ -783,13 +794,11 @@ test('draws the list in French for fr-FR and fr-CA', async () => {
 
 test('the folded count of a group is pluralised in English', async () => {
   const names = ['Opus', 'Sonnet']
-  const claude = SAMPLE_STORE.profiles.filter((p) => p.agentId === 'claude')
   const store: Store = {
     ...SAMPLE_STORE,
     providers: [],
     profiles: [OPUS, ...names.slice(1).map((name) => ({ ...OPUS, id: name, name })), ...SAMPLE_STORE.profiles.filter((p) => p.agentId === 'codex')]
   }
-  assert.ok(claude.length > 0)
   const { view } = await open({
     locale: 'en-US',
     store,
@@ -850,7 +859,7 @@ test('the provider form is in English, with its own validation message', async (
 test('the empty and error states are in English', async () => {
   const noAgents = await open({ locale: 'en-US', inventory: { ...ENABLED, agents: [] } })
   assert.notEqual(noAgents.view.find({ label: 'No agents enabled' }), null)
-  assert.equal(noAgents.view.find({ type: 'EmptyState' })?.props.description, 'Enable an agent in Orca settings (Agents).')
+  assert.equal(noAgents.view.find({ type: 'EmptyState' })?.props.description, "Enable an agent in Orca's settings (Agents).")
   await expectClean(noAgents.view)
 
   const noWorkspace = await open({ locale: 'en-US', context: null })

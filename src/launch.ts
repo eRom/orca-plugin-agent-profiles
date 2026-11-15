@@ -1,5 +1,6 @@
 // Logique pure du routage : lecture et réécriture de la ligne de commande, environnement du profil.
 import type { AgentSpec, FlagGrammar } from './agents'
+import type { Messages } from './copy'
 import { isEnvReference, sameModel, type Profile, type Provider } from './store'
 
 /**
@@ -205,11 +206,11 @@ export function findProfileByModel(profiles: readonly Profile[], model: string |
  * terminal (qui lit ~/.zshenv) : le worker d'Orca, lancé depuis le Dock, n'a pas ces variables
  * (constaté le 15/11/2026), et la clé ne transite ainsi ni par le plugin ni par Orca.
  * `:?` fait échouer la commande dans le shell, en nommant la variable, si elle est absente ou vide.
+ * Le texte de l'échec (`reason`) est inséré tel quel dans l'expansion : `Messages.envMissing` ne contient
+ * ni `"`, ni `}`, ni `$`, ni accent grave, ni antislash (invariant testé dans copy.test.ts).
  */
-function shellAssignments(references: [string, string][]): string {
-  return references
-    .map(([target, ref]) => `${target}="\${${ref}:?absente du shell, exporte-la dans ~/.zshenv}"`)
-    .join(' ')
+function shellAssignments(references: [string, string][], reason: string): string {
+  return references.map(([target, ref]) => `${target}="\${${ref}:?${reason}}"`).join(' ')
 }
 
 /** Nom de variable valide pour le shell : défense contre un store modifié à la main. */
@@ -219,7 +220,8 @@ export function applyProfile(
   event: { command: string; env: Record<string, string> },
   spec: AgentSpec,
   profile: Profile,
-  provider: Provider | null
+  provider: Provider | null,
+  messages: Messages
 ): { command: string; env: Record<string, string> } {
   const command = rewriteForProfile(event.command, spec, profile)
   // Sans fournisseur (tout agent autre que Claude, ou Claude sur son compte) : seule la commande change.
@@ -246,6 +248,6 @@ export function applyProfile(
   // Un `export` plus loin dans ~/.zshenv ne peut ainsi écraser ni l'un ni l'autre. Un jeton littéral
   // reste dans `env` seulement : il pourrait être un secret, et la ligne de commande se journalise.
   const routing = `ANTHROPIC_BASE_URL=${shellQuote(provider.baseUrl)} ANTHROPIC_API_KEY=''`
-  const prefix = references.length > 0 ? `${routing} ${shellAssignments(references)}` : routing
+  const prefix = references.length > 0 ? `${routing} ${shellAssignments(references, messages.envMissing)}` : routing
   return { command: `${prefix} ${command}`, env }
 }
