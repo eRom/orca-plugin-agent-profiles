@@ -1,0 +1,33 @@
+{
+  "manifestVersion": 2,
+  "id": "agent-profiles",
+  "name": "Agent Profiles",
+  "version": "2.0.4",
+  "description": "Lance les agents d'Orca avec tes profils : modèle, effort et, pour Claude, un fournisseur (Ollama, OpenRouter) injectés au lancement.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "workspace:write" },
+    { "kind": "agent:launch" },
+    { "kind": "storage:own" }
+  ],
+  "contributes": {
+    "panels": [
+      { "id": "agents", "title": "Agents", "icon": "bot", "entry": "src/panel.tsx", "ui": "components" }
+    ],
+    "commands": [
+      { "id": "agentProfiles.relaunchLast", "title": "Agents : relancer le dernier profil", "when": "workspace" }
+    ],
+    "keybindings": [
+      { "command": "agentProfiles.relaunchLast", "key": "Mod+Alt+L", "when": "workspace" }
+    ],
+    "hooks": [
+      { "event": "agent.launch.before" }
+    ]
+  }
+}
