@@ -10,8 +10,27 @@
   "icon": "media/icon.png",
   "cover": {
     "path": "media/cover.png",
-    "alt": "The Agents panel with profiles grouped by agent, each showing its model, effort and provider, beside the command a Claude profile launches through Ollama."
+    "alt": "The Agents panel with profiles grouped by agent, beside the command a Claude profile launches through Ollama."
   },
+  "screenshots": [
+    {
+      "path": "media/screenshot-light.png",
+      "alt": "The Agents panel in Orca's light theme: Antigravity and Claude groups, each profile with its model, effort, launch and edit buttons.",
+      "caption": "Follows Orca's theme"
+    },
+    {
+      "path": "media/screenshot-form-dark.png",
+      "alt": "The dark profile form for a Claude profile: name, avatar, model glm-5.3:cloud[1m], effort Max, provider Ollama, extra arguments.",
+      "caption": "One profile, every setting",
+      "theme": "dark"
+    },
+    {
+      "path": "media/screenshot-form-light.png",
+      "alt": "The same profile form in the light theme.",
+      "caption": "One profile, every setting",
+      "theme": "light"
+    }
+  ],
   "engines": {
     "orca": ">=1.4.248"
   },
