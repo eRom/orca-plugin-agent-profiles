@@ -6,7 +6,7 @@
 
 [Install](#install) · [Features](#features) · [Routing](#how-routing-works) · [Access](#what-it-can-access) · [Limits](#requirements-and-limits) · [Development](#development)
 
-<img src="media/panel.png" alt="The Agents panel: one group per enabled agent, each profile showing its model, effort and provider" width="420">
+![The Agents panel: one group per enabled agent, each profile showing its model, effort and provider, beside the command a Claude profile launches through Ollama](media/cover.png)
 
 Orca lets you pick an agent, but every launch starts from the same command. Agent Profiles adds an **Agents** panel where each agent you enabled in Orca gets its own group of profiles: *Opus on high effort*, *DeepSeek through Ollama*, *Codex with a custom config*. One click on ▷ launches the profile in the active workspace.
 

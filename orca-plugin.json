@@ -7,6 +7,11 @@
   "author": { "name": "Romain Ecarnot", "url": "https://github.com/eRom" },
   "repository": "https://github.com/eRom/orca-plugin-agent-profiles",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "cover": {
+    "path": "media/cover.png",
+    "alt": "The Agents panel with profiles grouped by agent, each showing its model, effort and provider, beside the command a Claude profile launches through Ollama."
+  },
   "engines": {
     "orca": ">=1.4.248"
   },
