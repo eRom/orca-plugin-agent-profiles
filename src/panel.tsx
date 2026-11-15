@@ -186,11 +186,13 @@ function renderProfileSummary(current: Store, profile: Profile) {
 function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, canLaunch: boolean) {
   return (
     <Row key={profile.id} justify="between" align="center" gap="sm">
-      <Row align="center" gap="sm">
+      {/* Le texte prend la place libre et se tronque (minWidth 0) ; les actions gardent leur taille,
+          donc ▷ et ✎ restent alignés en colonne quelle que soit la longueur du texte. */}
+      <Box key={`text-${profile.id}`} direction="row" align="center" gap="sm" grow minWidth={0}>
         <Box key={`lead-${profile.id}`} width={LEAD_SLOT_WIDTH} shrink={false} align="center" justify="center">
           {profile.avatar ? <Image src={profile.avatar} alt="" size="xs" rounded /> : renderMonogram(profile.name)}
         </Box>
-        <Stack gap="none">
+        <Box key={`lines-${profile.id}`} grow minWidth={0}>
           <Row align="center" gap="xs">
             <Text weight="semibold" truncate>
               {profile.name}
@@ -198,9 +200,9 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
             {current.lastProfileId === profile.id ? <Badge tone="accent">{COPY.lastBadge}</Badge> : null}
           </Row>
           {renderProfileSummary(current, profile)}
-        </Stack>
-      </Row>
-      <Row gap="xs">
+        </Box>
+      </Box>
+      <Box key={`actions-${profile.id}`} direction="row" gap="xs" shrink={false}>
         <IconButton
           icon="play"
           label={COPY.launch(profile.name)}
@@ -216,7 +218,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
           size="sm"
           onPress={() => openProfileForm(spec.id, profile)}
         />
-      </Row>
+      </Box>
     </Row>
   )
 }
@@ -277,21 +279,23 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
 function renderProviderRow(current: Store, provider: Provider) {
   return (
     <Row key={provider.id} justify="between" align="center" gap="sm">
-      <Stack gap="none">
+      <Box key={`text-${provider.id}`} grow minWidth={0}>
         <Text weight="semibold" truncate>
           {provider.name}
         </Text>
         <Text muted size="xs" truncate>
           {provider.baseUrl}
         </Text>
-      </Stack>
-      <IconButton
-        icon="edit"
-        label={COPY.edit(provider.name)}
-        variant="ghost"
-        size="sm"
-        onPress={() => openProviderForm(current, provider)}
-      />
+      </Box>
+      <Box key={`actions-${provider.id}`} shrink={false}>
+        <IconButton
+          icon="edit"
+          label={COPY.edit(provider.name)}
+          variant="ghost"
+          size="sm"
+          onPress={() => openProviderForm(current, provider)}
+        />
+      </Box>
     </Row>
   )
 }
