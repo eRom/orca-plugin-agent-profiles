@@ -359,6 +359,36 @@ test('in the dark theme, Kilo uses its dark-theme variant for the group header a
   await expectClean(view)
 })
 
+/** Deux avatars livrés (Ollama, Kimi) ont un glyphe blanc : variante `avatars/on-light/` en thème clair seulement. */
+const AVATAR_STORE: Store = {
+  ...SAMPLE_STORE,
+  profiles: [
+    { ...OPUS, avatar: 'avatars/ollama.png' },
+    { ...OPUS, id: 'kimi-profile', name: 'Kimi profile', avatar: 'avatars/kimi.png' },
+    { ...OPUS, id: 'qwen-profile', name: 'Qwen profile', avatar: 'avatars/qwen.png' }
+  ]
+}
+
+test('in the light theme, the Ollama and Kimi avatars use their light-theme variant and the others stay as they are', async () => {
+  const { view } = await open({ theme: 'light', store: AVATAR_STORE })
+  const sources = imageSources(view)
+  assert.ok(sources.includes('avatars/on-light/ollama.png'))
+  assert.ok(sources.includes('avatars/on-light/kimi.png'))
+  assert.ok(!sources.includes('avatars/ollama.png'))
+  assert.ok(!sources.includes('avatars/kimi.png'))
+  assert.ok(sources.includes('avatars/qwen.png'))
+  await expectClean(view)
+})
+
+test('in the dark theme, the Ollama and Kimi avatars keep their base image', async () => {
+  const { view } = await open({ theme: 'dark', store: AVATAR_STORE })
+  const sources = imageSources(view)
+  assert.ok(sources.includes('avatars/ollama.png'))
+  assert.ok(sources.includes('avatars/kimi.png'))
+  assert.ok(!sources.some((src) => src.includes('/on-')))
+  await expectClean(view)
+})
+
 test('switching the theme swaps the icons without remounting', async () => {
   const { view } = await open({ theme: 'dark', store: ICON_STORE, inventory: ICON_INVENTORY })
   assert.ok(imageSources(view).includes('agent-icons/codex.png'))

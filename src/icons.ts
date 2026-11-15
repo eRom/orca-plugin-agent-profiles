@@ -1,23 +1,23 @@
 // Variantes d'icônes selon le thème d'Orca. Module pur : le panneau l'importe, il n'a pas de système de fichiers,
-// donc la liste des variantes est une table statique (un test vérifie qu'elle colle au disque).
+// donc la liste des variantes est une table statique (un test la compare au disque dans les deux sens).
 
 export type ColorScheme = 'light' | 'dark'
 
 /**
- * Icônes de base (`agent-icons/<nom>`) qui ont une variante pour un thème, dans `agent-icons/on-<thème>/<nom>`.
+ * Images de base (chemin relatif à la racine du plugin) qui ont une variante pour un thème : la variante est dans le
+ * sous-dossier `on-<thème>/` du même dossier (`agent-icons/on-light/codex.png`).
  * Orca dessine Codex, Aider, Pi et OpenCode 2 avec `currentColor` : notre PNG converti est clair, donc illisible
- * sur fond clair. Kilo a au contraire un glyphe sombre, illisible sur fond sombre.
+ * sur fond clair. Kilo a au contraire un glyphe sombre, illisible sur fond sombre. Les avatars Kimi et Ollama ont un
+ * glyphe blanc, illisible sur fond clair.
  */
 export const ICON_VARIANTS: Readonly<Record<ColorScheme, readonly string[]>> = {
-  light: ['codex.png', 'aider.png', 'pi.png', 'opencode2.png'],
-  dark: ['kilo.png']
+  light: ['agent-icons/codex.png', 'agent-icons/aider.png', 'agent-icons/pi.png', 'agent-icons/opencode2.png', 'avatars/kimi.png', 'avatars/ollama.png'],
+  dark: ['agent-icons/kilo.png']
 }
 
-const BASE_FOLDER = 'agent-icons/'
-
-/** Chemin de la variante de `iconPath` pour `colorScheme` si elle existe, sinon `iconPath` inchangé (avatars compris). */
+/** Chemin de la variante de `iconPath` pour `colorScheme` si elle existe, sinon `iconPath` inchangé. */
 export function themedIcon(iconPath: string, colorScheme: ColorScheme): string {
-  if (!iconPath.startsWith(BASE_FOLDER)) return iconPath
-  const file = iconPath.slice(BASE_FOLDER.length)
-  return ICON_VARIANTS[colorScheme].includes(file) ? `${BASE_FOLDER}on-${colorScheme}/${file}` : iconPath
+  if (!ICON_VARIANTS[colorScheme].includes(iconPath)) return iconPath
+  const slash = iconPath.lastIndexOf('/')
+  return `${iconPath.slice(0, slash)}/on-${colorScheme}/${iconPath.slice(slash + 1)}`
 }

@@ -37,6 +37,8 @@ test('answers avatars.list with avatars first, then agent icons, as plugin paths
   // Les avatars précèdent toutes les icônes d'agent.
   const firstIcon = files.findIndex((file) => file.startsWith('agent-icons/'))
   assert.ok(files.slice(firstIcon).every((file) => file.startsWith('agent-icons/')))
+  // Les variantes de thème (`on-light/`, `on-dark/`) ne sont jamais proposées : le panneau les choisit seul.
+  assert.ok(files.every((file) => file.split('/').length === 2 && !file.includes('/on-')))
   for (const file of files) {
     const [directory, name] = file.split('/') as ['avatars' | 'agent-icons', string]
     assert.ok(existsSync(join(pluginDirectory(directory), name)), file)
