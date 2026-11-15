@@ -234,7 +234,8 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
   return (
     <Box key={spec.id} border radius="md" padding="sm" gap="sm" background="muted">
       <Row justify="between" align="center" gap="sm">
-        <Row align="center" gap="sm">
+        {/* Même principe que les lignes de profil : le nom se tronque, le compteur et le + gardent leur taille. */}
+        <Box key={`head-${spec.id}`} direction="row" align="center" gap="sm" grow minWidth={0}>
           {/* Convention d'arborescence : chevron vers le bas quand le groupe est ouvert, vers la droite quand il est replié. */}
           <IconButton
             icon={collapsed ? 'next' : 'expand'}
@@ -250,12 +251,14 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
             {spec.label}
           </Text>
           {collapsed ? (
-            <Text muted size="xs">
-              {COPY.profileCount(profiles.length)}
-            </Text>
+            <Box key={`count-${spec.id}`} shrink={false}>
+              <Text muted size="xs">
+                {COPY.profileCount(profiles.length)}
+              </Text>
+            </Box>
           ) : null}
-        </Row>
-        <Row gap="xs">
+        </Box>
+        <Box key={`add-${spec.id}`} shrink={false}>
           <IconButton
             icon="add"
             label={COPY.newProfileFor(spec.label)}
@@ -263,7 +266,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
             size="sm"
             onPress={() => newProfile(spec.id)}
           />
-        </Row>
+        </Box>
       </Row>
       {collapsed ? null : profiles.length === 0 ? (
         <Text muted size="xs">
