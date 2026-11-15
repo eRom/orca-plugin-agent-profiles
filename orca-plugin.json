@@ -3,7 +3,10 @@
   "id": "agent-profiles",
   "name": "Agent Profiles",
   "version": "2.0.4",
-  "description": "Lance les agents d'Orca avec tes profils : modèle, effort et, pour Claude, un fournisseur (Ollama, OpenRouter) injectés au lancement.",
+  "description": "Launch Orca's agents with saved profiles: model, effort, extra arguments and, for Claude, a provider such as Ollama or OpenRouter.",
+  "author": { "name": "Romain Ecarnot", "url": "https://github.com/eRom" },
+  "repository": "https://github.com/eRom/orca-plugin-agent-profiles",
+  "license": "MIT",
   "engines": {
     "orca": ">=1.4.248"
   },

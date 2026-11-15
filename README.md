@@ -1,97 +1,105 @@
 # Agent Profiles
 
-Plugin Orca qui lance les agents d'Orca avec tes profils. Un profil associe à un agent (Claude, Antigravity, Codex,
-Grok, OpenCode, Pi, DeepSeek Harness...) un modèle et un effort quand l'agent les accepte (certains n'acceptent que
-des arguments en plus), avec des arguments facultatifs. Pour Claude,
-il peut aussi pointer un fournisseur (Ollama, OpenRouter, tout fournisseur compatible) dont l'environnement est
-injecté au moment du lancement, via le hook `agent.launch.before`.
+**Launch Orca's coding agents with saved profiles: model, effort, extra arguments and, for Claude, a third-party provider such as Ollama or OpenRouter.**
 
-## Le panneau « Agents »
+![Orca](https://img.shields.io/badge/Orca-%E2%89%A51.4.248-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-- **Un groupe par agent activé dans Orca**, par ordre alphabétique. L'en-tête montre un chevron, l'icône et le
-  nom de l'agent, avec + pour y créer un profil. Le chevron replie ou déplie les profils du groupe ; replié,
-  l'en-tête indique combien de profils il cache. Les groupes repliés sont retenus d'une session d'Orca à l'autre,
-  les mêmes pour tous les workspaces. Chaque groupe se détache du volet sur une surface du thème d'Orca
-  (thèmes personnalisés compris).
-- **Profils**, par ordre alphabétique dans leur groupe : un avatar (ou un monogramme), le nom, le résumé « modèle · effort · fournisseur » (les parties
-  absentes sont omises), le badge « Dernier » sur le profil lancé en dernier. ▷ lance le profil dans le workspace
-  actif, ✎ le modifie. Le formulaire s'adapte à l'agent : modèle et effort seulement quand l'agent les accepte,
-  fournisseur pour Claude uniquement.
-- **Fournisseurs** : partagés, réservés à Claude. L'URL de base (sans `/v1` à la fin : Claude Code ajoute
-  `/v1/messages`), le jeton et des variables d'environnement supplémentaires, une par ligne.
-- **Avatars** : des PNG des dossiers `avatars/` (voir `avatars/SOURCES.md`) et `agent-icons/` (icônes des agents
-  d'Orca, voir `agent-icons/SOURCES.md`), choisis dans le formulaire du profil.
-- `Mod+Alt+L` (ou la commande « Agents : relancer le dernier profil ») relance le dernier profil lancé, quel que
-  soit son agent. Les réglages d'Orca sont relus à ce moment : si l'agent est désactivé, rien n'est lancé et le
-  message le dit.
+[Install](#install) · [Features](#features) · [Routing](#how-routing-works) · [Access](#what-it-can-access) · [Limits](#requirements-and-limits) · [Development](#development)
 
-## Quels agents sont activés
+<img src="media/panel.png" alt="The Agents panel: one group per enabled agent, each profile showing its model, effort and provider" width="420">
 
-Aucune API de plugin ne donne la liste des agents d'Orca : le plugin la reconstitue lui-même.
+Orca lets you pick an agent, but every launch starts from the same command. Agent Profiles adds an **Agents** panel where each agent you enabled in Orca gets its own group of profiles: *Opus on high effort*, *DeepSeek through Ollama*, *Codex with a custom config*. One click on ▷ launches the profile in the active workspace.
 
-1. Il lit, en lecture seule, les réglages d'Orca (`disabledTuiAgents` et `agentCmdOverrides`) dans
-   `~/Library/Application Support/orca/profiles/<id>/profile-state.db`. Il n'y écrit jamais.
-2. Il cherche la commande de chaque agent connu avec un seul `zsh -ilc`, donc avec le vrai `PATH` de ton shell.
-3. Un agent est affiché s'il est trouvé, pas désactivé dans Orca, et si les commandes dont il dépend sont aussi
-   trouvées (Claude Agent Teams a besoin de `claude`, DeepSeek Harness de `dsh`). Une commande personnalisée
-   définie dans Orca (override) compte comme une commande trouvée.
+## Install
 
-Le panneau se met à jour à son ouverture et au bouton ⟳, qui relance la détection : un interrupteur basculé dans
-Settings > Agents n'est pas suivi tout seul, appuie sur ⟳ pour le voir. Si le shell de login échoue (erreur ou
-délai de 15 s), le plugin cherche les commandes dans le `PATH` du worker, moins complet que celui de ton shell.
-Si les réglages d'Orca sont illisibles, le panneau affiche tous les agents trouvés et le dit.
+From the Orca plugin directory:
 
-## Données
+[Open in Orca](https://orca.dev/plugins/erom.agent-profiles?catalog=community)
 
-La V2 démarre à vide : elle écrit sous la clé `store.v2` et ne lit, ne modifie ni n'efface `store.v1`, qui reste
-intact (retour à la V1 possible). Les fournisseurs et profils de la V1 sont à recréer dans le panneau, aucun import.
-Un profil dont l'agent est désactivé reste dans le store et réapparaît avec son groupe.
+Or from the command line:
 
-## Routage
+```sh
+orca plugin install eRom/orca-plugin-agent-profiles
+```
 
-Un profil lancé depuis le panneau (ou par `Mod+Alt+L`) réécrit la commande de son agent : le hook retire le flag
-de modèle ou d'effort déjà présent dans les réglages d'Orca, puis pose ceux du profil, avec les arguments en plus.
-Un effort laissé à « Celui d'Orca » ne touche pas à la commande.
+Orca shows the access the plugin asks for (see [What it can access](#what-it-can-access)) and enables it once you approve. The panel then appears in the right sidebar under the robot icon.
 
-Pour Claude avec fournisseur, tout lancement dont le `--model` est celui du profil est aussi routé vers lui, d'où
-qu'il vienne (palette, CLI, automation), par exemple :
+## Features
+
+- **One group per enabled agent**, sorted alphabetically. A chevron collapses or expands a group, and the collapsed state is remembered across Orca restarts. The groups follow Orca's theme, custom themes included.
+- **Profiles** show an avatar or a monogram, the name, a "model · effort · provider" summary, and a badge on the last profile launched. ▷ launches, ✎ edits.
+- **The form adapts to the agent**: model and effort fields appear only when the agent accepts them (Claude, Codex, Grok, Antigravity, Pi, CodeBuddy and others), extra arguments always.
+- **Providers for Claude**: a base URL, a token and extra environment variables, shared between profiles. Any Anthropic-compatible endpoint works (Ollama, OpenRouter, a local gateway).
+- **Relaunch the last profile** with `Mod+Alt+L` or the command *Agents : relancer le dernier profil*, whatever its agent.
+- **Avatars**: bundled agent icons and model brand icons, picked in the profile form.
+
+The interface is in French.
+
+## How routing works
+
+When you launch a profile, the plugin's `agent.launch.before` hook rewrites the agent's command: it removes any model or effort flag already set in Orca's settings, then adds the profile's own flags and extra arguments. An effort left on *Celui d'Orca* leaves the command untouched.
+
+For Claude with a provider, any launch whose `--model` matches the profile is routed to that provider, wherever it comes from (command palette, CLI, automation):
 
 ```sh
 orca agent launch --agent claude --model 'deepseek-v4.1-flash:cloud[1m]'
 ```
 
-Les autres agents ne sont jamais modifiés hors du panneau.
+Other agents are never modified outside the panel.
 
-L'URL de base et la clé Anthropic vide sont écrites en tête de commande, hors de portée d'un `export` plus loin
-dans `~/.zshenv`. Un jeton littéral ne passe que par l'environnement du lancement, jamais par la ligne de commande.
+### Tokens
 
-### Clés `$NOM`
+A token written as `$NAME` (for example `$OPENROUTER_API_KEY`) is never read by the plugin. It becomes an assignment at the head of the command, expanded by the terminal's shell, which reads your `~/.zshenv`: the key never passes through the plugin or Orca. If the variable is missing, the shell refuses to start Claude and names it.
 
-Une valeur `$NOM` (par exemple `$OPENROUTER_API_KEY`) n'est jamais lue par le plugin : elle devient une affectation
-en tête de commande, développée par le shell du terminal, qui lit `~/.zshenv`. Le worker d'Orca, lancé depuis le Dock,
-n'a pas ces variables, et la clé ne transite ni par le plugin ni par Orca. Si la variable est absente, le shell refuse
-de démarrer Claude et la nomme.
+A literal token is accepted but stored in clear in the plugin's storage, and passed only through the launch environment, never on the command line. The form warns about it.
 
-## Limites
+## What it can access
 
-- La détection des agents dépend du format interne de `profile-state.db`, sans contrat côté Orca : s'il change,
-  le plugin retombe sur « tous les agents installés » au lieu de planter, mais le tri par activation est perdu.
-- La table des agents (`src/agents.ts`: commandes, flags de modèle et d'effort) est embarquée et à tenir à jour
-  quand Orca ajoute ou modifie un agent.
-- Kimi est détecté comme installé par Orca alors que sa commande n'est pas dans le `PATH` : le plugin ne le voit
-  pas tant que c'est le cas.
-- Pas de prompt au lancement depuis le panneau : Orca ne le transmet pas.
-- Les reprises et restaurations de session ne sont pas routées : Orca ne les passe pas par le hook, une session routée
-  reprise démarre donc sans le profil.
-- Un lancement natif du même agent, déclenché dans les 15 secondes qui suivent un lancement depuis le panneau dont le profil n'a pas encore été consommé, peut recevoir ce profil.
-- En mode dev, tout changement de fichier dans le dossier du plugin le désactive jusqu'à une nouvelle approbation :
-  pour un usage quotidien, installe une copie figée.
+Orca labels this plugin **Full access**: it runs its own worker process on your machine with your user's rights. Here is exactly what it does with that.
 
-## Développement
+| Capability | Why |
+| --- | --- |
+| `workspace:read` | Know the active workspace to launch a profile in it. |
+| `workspace:write` | Focus the terminal of the agent it just launched (Orca opens it in the background otherwise). |
+| `agent:launch` | Launch agents from the panel and rewrite their command in the launch hook. |
+| `storage:own` | Keep profiles, providers and panel state in the plugin's own storage. |
+
+Beyond Orca's API, the worker:
+
+- **reads** Orca's settings database (`~/Library/Application Support/orca/profiles/<id>/profile-state.db`) to know which agents you enabled. It never writes to it.
+- **runs one command**: a single `zsh -ilc` that looks up each known agent's executable with your real `PATH`.
+- **makes no network request** and collects no data.
+
+## Requirements and limits
+
+- **macOS only**: the plugin reads Orca's settings from `~/Library/Application Support/orca`.
+- **Orca 1.4.248 or later**, and `zsh` as the login shell for agent detection. If the login shell fails or takes more than 15 seconds, the plugin falls back to the worker's `PATH`, which is less complete.
+- **No plugin API lists Orca's enabled agents**, so the plugin reads Orca's internal settings format. If that format changes, it falls back to showing every installed agent instead of failing.
+- **Toggling an agent** in Settings > Agents is not picked up live: press ⟳ in the panel.
+- **The agent table** (commands, model and effort flags) is bundled in `src/agents.ts` and must be updated when Orca adds or changes an agent.
+- **No prompt at launch**: Orca does not pass a prompt given by a plugin to the agent.
+- **Resumed and restored sessions are not routed**: Orca does not send them through the launch hook, so they start without the profile.
+- **A native launch of the same agent** within 15 seconds of a panel launch whose profile was not yet consumed may receive that profile.
+
+## Development
 
 ```sh
-orca plugin test . --json
-bunx tsc -p .
+orca plugin dev load .     # run the folder in Orca, writes the typings to .orca/types
+orca plugin test . --json  # unit tests
+bunx tsc -p .              # type check
 orca plugin validate . --json
 orca plugin check . --json
 ```
+
+In development mode, Orca ties the approval to the folder's content: any file change disables the plugin until you approve it again. For daily use, install a frozen copy with `orca plugin install .`.
+
+## Credits
+
+- Agent icons come from [Orca](https://github.com/stablyai/orca) (MIT), see [`agent-icons/SOURCES.md`](agent-icons/SOURCES.md).
+- Model avatars come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT), see [`avatars/SOURCES.md`](avatars/SOURCES.md). Brand icons are trademarks of their respective owners and only identify a provider or model.
+
+Agent Profiles is a community plugin, not made or endorsed by Stably or by any of the agent vendors.
+
+## License
+
+[MIT](LICENSE)

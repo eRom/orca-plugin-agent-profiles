@@ -1,7 +1,7 @@
 # Origine des icônes d'agents
 
 Ces icônes illustrent les agents dans le volet « Agent Profiles ». Elles viennent du dépôt d'Orca
-(`/Users/recarnot/dev/orca`), commit `ed507d41f4d`.
+(https://github.com/stablyai/orca, licence MIT), commit `ed507d41f4d`.
 
 ## Copies directes (38 fichiers)
 
