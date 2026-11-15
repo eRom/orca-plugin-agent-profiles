@@ -48,7 +48,7 @@
       { "id": "agents", "title": "Agents", "icon": "bot", "entry": "src/panel.tsx", "ui": "components" }
     ],
     "commands": [
-      { "id": "agentProfiles.relaunchLast", "title": "Agents : relancer le dernier profil", "when": "workspace" }
+      { "id": "agentProfiles.relaunchLast", "title": "Agents: relaunch last profile", "when": "workspace" }
     ],
     "keybindings": [
       { "command": "agentProfiles.relaunchLast", "key": "Mod+Alt+L", "when": "workspace" }

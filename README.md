@@ -30,14 +30,14 @@ Orca shows the access the plugin asks for (see [What it can access](#what-it-can
 - **Profiles** show an avatar or a monogram, the name, a "model · effort · provider" summary, and a badge on the last profile launched. ▷ launches, ✎ edits.
 - **The form adapts to the agent**: model and effort fields appear only when the agent accepts them (Claude, Codex, Grok, Antigravity, Pi, CodeBuddy and others), extra arguments always.
 - **Providers for Claude**: a base URL, a token and extra environment variables, shared between profiles. Any Anthropic-compatible endpoint works (Ollama, OpenRouter, a local gateway).
-- **Relaunch the last profile** with `Mod+Alt+L` or the command *Agents : relancer le dernier profil*, whatever its agent.
+- **Relaunch the last profile** with `Mod+Alt+L` or the command *Agents: relaunch last profile*, whatever its agent.
 - **Avatars**: bundled agent icons and model brand icons, picked in the profile form.
 
-The interface is in French.
+The interface follows Orca's language: French when Orca is set to French, English otherwise.
 
 ## How routing works
 
-When you launch a profile, the plugin's `agent.launch.before` hook rewrites the agent's command: it removes any model or effort flag already set in Orca's settings, then adds the profile's own flags and extra arguments. An effort left on *Celui d'Orca* leaves the command untouched.
+When you launch a profile, the plugin's `agent.launch.before` hook rewrites the agent's command: it removes any model or effort flag already set in Orca's settings, then adds the profile's own flags and extra arguments. An effort left on *Orca's default* leaves the command untouched.
 
 For Claude with a provider, any launch whose `--model` matches the profile is routed to that provider, wherever it comes from (command palette, CLI, automation):
 
