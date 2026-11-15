@@ -3,3 +3,4 @@ _memory_/
 .superpowers/
 node_modules/
 docs/superpowers/
+.claude/notes/
