@@ -114,7 +114,8 @@ const fr: Messages = {
   launched: (name) => `« ${name} » lancé.`,
   literalToken: 'Jeton stocké en clair dans le plugin ; préfère une référence $NOM.',
   envMissing: 'absente du shell, exporte-la dans ~/.zshenv',
-  envMissingWindows: "absente du shell, crée-la dans les variables d'environnement de ton compte Windows, puis redémarre Orca",
+  envMissingWindows:
+    "absente du shell, crée-la dans les variables d'environnement de ton compte Windows, puis ferme ta session Windows et rouvre-la",
   providerShellUnsupported:
     "Les fournisseurs demandent PowerShell sous Windows : choisis-le comme shell des terminaux dans les réglages d'Orca.",
 
@@ -200,7 +201,7 @@ const en: Messages = {
   launched: (name) => `"${name}" launched.`,
   literalToken: 'Token stored in plain text in the plugin; prefer a $NAME reference.',
   envMissing: 'missing from the shell, export it in ~/.zshenv',
-  envMissingWindows: "missing from the shell, add it to your Windows account's environment variables, then restart Orca",
+  envMissingWindows: "missing from the shell, add it to your Windows account's environment variables, then sign out of Windows and back in",
   providerShellUnsupported: "Providers need PowerShell on Windows: pick it as the terminal shell in Orca's settings.",
 
   tabProviders: 'Providers',

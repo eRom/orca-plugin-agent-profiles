@@ -51,7 +51,7 @@ Other agents are never modified outside the panel.
 
 A token written as `$NAME` (for example `$OPENROUTER_API_KEY`) is never read by the plugin. It becomes an assignment at the head of the command, expanded by the terminal's shell, which reads your `~/.zshenv`: the key never passes through the plugin or Orca. If the variable is missing, the shell refuses to start Claude and names it.
 
-On Windows, the assignment is written for PowerShell (`$env:NAME`), and the variable must exist in your Windows account's environment variables; restart Orca after adding one.
+On Windows, the assignment is written for PowerShell (`$env:NAME`), and the variable must exist in your Windows account's environment variables. After adding one, sign out of Windows and back in: Orca's terminals come from a background process that keeps running when you restart Orca, with the variables it started with.
 
 A literal token is accepted but stored in clear in the plugin's storage, and passed only through the launch environment, never on the command line. The form warns about it.
 
