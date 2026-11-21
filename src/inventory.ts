@@ -1,11 +1,12 @@
 // Inventaire des agents que l'utilisateur a activés dans Orca : réglages lus (en lecture seule) dans la
 // base SQLite d'Orca, commandes cherchées par un shell de login (dans le PATH sous Windows). Reproduit la règle de détection d'Orca
 // (src/main/preflight/installed-agent-detection.ts) : agent non désactivé, installé, dépendances présentes.
-import { accessSync, constants, readFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { fileURLToPath } from 'node:url'
 import { AGENTS } from './agents'
 import { launchShellSyntax, shellQuote, splitWords, type ShellSyntax } from './launch'
 
@@ -18,17 +19,17 @@ export type InventoryDeps = {
   /** `onFallback` est appelé quand le shell de login a échoué et que la recherche est retombée sur le PATH. */
   findCommands: (tokens: readonly string[], onFallback?: () => void) => Promise<ReadonlySet<string>>
   now: () => number
-  /** Syntaxe du shell où Orca lance les agents ; `null` si ce shell n'est pas pris en charge. */
-  launchShell: () => ShellSyntax | null
+  /** Syntaxe du shell où Orca lance les agents. */
+  launchShell: () => ShellSyntax
 }
 
-/** Système hôte : seul Windows change la recherche des commandes. */
-export type HostSystem = { platform: string; pathExt: string }
-const HOST_SYSTEM: HostSystem = { platform: process.platform, pathExt: process.env.PATHEXT ?? '' }
+/** Système hôte : seul Windows change la recherche des commandes et la lecture des overrides. */
+export type HostSystem = { platform: string; pathExt: string; home: string }
+const HOST_SYSTEM: HostSystem = { platform: process.platform, pathExt: process.env.PATHEXT ?? '', home: homedir() }
 
 /**
- * Dossier de données d'Orca (le `userData` d'Electron). Sous Windows, le worker ne reçoit pas APPDATA
- * (constaté le 21/11/2026 sur Orca 1.4.268) : on le déduit du dossier personnel. Linux n'est pas vérifié.
+ * Dossier de données d'Orca par défaut (le `userData` d'Electron). Sous Windows, le worker ne reçoit pas
+ * APPDATA (constaté le 21/11/2026 sur Orca 1.4.268) : on le déduit du dossier personnel. Linux n'est pas vérifié.
  */
 export function orcaUserDataDir(platform: string, home: string, env: Record<string, string | undefined>): string {
   if (platform === 'darwin') return posix.join(home, 'Library/Application Support/orca')
@@ -36,16 +37,39 @@ export function orcaUserDataDir(platform: string, home: string, env: Record<stri
   return posix.join(env.XDG_CONFIG_HOME || posix.join(home, '.config'), 'orca')
 }
 
-export const ORCA_USER_DATA = orcaUserDataDir(process.platform, homedir(), process.env)
+/**
+ * Dossier de données de l'Orca qui a installé le plugin, déduit du chemin de ce fichier :
+ * `<userData>/plugins/<clé>/<hash>/src/inventory.ts`. Couvre une instance de développement d'Orca
+ * (`orca-dev`), qu'aucune variable du worker ne désigne. `null` hors de cette forme (dossier dev du plugin).
+ */
+export function userDataFromPluginFile(file: string, isUserData: (dir: string) => boolean): string | null {
+  const parts = file.split(/[\\/]/)
+  if (parts.length < 6 || parts[parts.length - 5] !== 'plugins') return null
+  const dir = parts.slice(0, -5).join(file.includes('\\') ? '\\' : '/')
+  return dir !== '' && isUserData(dir) ? dir : null
+}
+
+const isOrcaUserData = (dir: string): boolean => existsSync(join(dir, 'orca-profile-index.json'))
+
+export const ORCA_USER_DATA =
+  userDataFromPluginFile(fileURLToPath(import.meta.url), isOrcaUserData) ??
+  orcaUserDataDir(process.platform, homedir(), process.env)
 
 const PROBE_MARKER = '__AGENT_PROFILES__'
 const SHELL_TIMEOUT_MS = 15_000
 
-/** Premier mot d'un override de commande (`~/` développé), ou `null` pour une valeur vide. */
-export function overrideToken(override: string | undefined): string | null {
-  const first = splitWords(override ?? '')[0]?.value
+/**
+ * Premier mot d'un override de commande (`~/` développé), ou `null` pour une valeur vide. Sous Windows,
+ * comme Orca (`overrideExecutableToken`) : l'opérateur `& ` de PowerShell n'est pas l'exécutable,
+ * l'antislash n'échappe rien (chemins Windows), et `~\` se développe aussi.
+ */
+export function overrideToken(override: string | undefined, system: HostSystem = HOST_SYSTEM): string | null {
+  const windows = system.platform === 'win32'
+  const input = windows ? (override ?? '').trim().replace(/^&\s+/, '') : (override ?? '')
+  const first = splitWords(input, !windows)[0]?.value
   if (!first) return null
-  return first.startsWith('~/') ? join(homedir(), first.slice(2)) : first
+  if (first.startsWith('~/')) return join(system.home, first.slice(2))
+  return windows && first.startsWith('~\\') ? win32.join(system.home, first.slice(2)) : first
 }
 
 /** Tous les jetons à chercher : commandes et dépendances de la table, plus les overrides, sans doublon. */
@@ -245,5 +269,6 @@ export const REAL_INVENTORY_DEPS: InventoryDeps = {
   readSettings: () => readOrcaSettings(),
   findCommands: (tokens, onFallback) => findCommands(tokens, undefined, undefined, onFallback),
   now: Date.now,
-  launchShell: () => launchShellSyntax(process.platform, readOrcaSettings()?.windowsShell)
+  // Hors Windows, pas de réglage à lire : la base SQLite n'est ouverte que là où elle décide.
+  launchShell: () => (process.platform === 'win32' ? launchShellSyntax('win32', readOrcaSettings()?.windowsShell) : 'posix')
 }

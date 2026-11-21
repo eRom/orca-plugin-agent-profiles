@@ -76,7 +76,8 @@ Beyond Orca's API, the worker:
 
 - **macOS and Windows**. Linux is not tested.
 - **Orca 1.4.259 or later**. On macOS, `zsh` as the login shell for agent detection: if it fails or takes more than 15 seconds, the plugin falls back to the worker's `PATH`, which is less complete.
-- **On Windows, providers need PowerShell** as the terminal shell in Orca's settings (the default). With Command Prompt, profiles still set the model, effort and arguments, but a profile with a provider is refused with a message.
+- **On Windows, providers need PowerShell** as the terminal shell in Orca's settings (the default). With Command Prompt, profiles still set the model, effort and arguments, but a profile with a provider is refused with a message. Git Bash and WSL, as the terminal shell, are handled like macOS.
+- **On Windows, WSL and SSH workspaces** run the agent in a Linux shell, but the plugin follows the terminal shell set in Orca's settings: a profile with a provider launched there will fail to start. Use it in local workspaces.
 - **No plugin API lists Orca's enabled agents**, so the plugin reads Orca's internal settings format. If that format changes, it falls back to showing every installed agent instead of failing.
 - **Toggling an agent** in Settings > Agents is not picked up live: press ⟳ in the panel.
 - **The agent table** (commands, model and effort flags) is bundled in `src/agents.ts` and must be updated when Orca adds or changes an agent.

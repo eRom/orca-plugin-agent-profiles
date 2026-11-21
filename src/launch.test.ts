@@ -3,6 +3,8 @@ import {
   MODEL_TIER_VARS,
   SUBAGENT_MODEL_FORCE_VAR,
   applyProfile,
+  dialectFor,
+  displayArg,
   findProfileByModel,
   insertArgs,
   launchShellSyntax,
@@ -164,9 +166,41 @@ test('picks the launch shell syntax from the platform and the Windows shell set 
     assert.equal(launchShellSyntax('win32', shell), 'powershell', shell)
   }
   assert.equal(launchShellSyntax('win32', 'cmd.exe'), 'cmd')
-  assert.equal(launchShellSyntax('win32', 'wsl.exe'), null)
-  assert.ok(supportsProviders('posix') && supportsProviders('powershell'))
-  assert.ok(!supportsProviders('cmd') && !supportsProviders(null))
+  // Classement d'Orca : Git Bash et WSL en POSIX, un shell inconnu en PowerShell.
+  for (const shell of ['git-bash', 'wsl.exe', 'wsl', 'C:\\Program Files\\Git\\bin\\bash.exe']) {
+    assert.equal(launchShellSyntax('win32', shell), 'posix', shell)
+  }
+  assert.equal(launchShellSyntax('win32', 'nu.exe'), 'powershell')
+  assert.ok(supportsProviders('posix') && supportsProviders('powershell') && !supportsProviders('cmd'))
+})
+
+test('under PowerShell, a typographic apostrophe is doubled too, so it cannot end the string', () => {
+  const profile = { ...OPUS, extraArgs: ['--append-system-prompt=x\u2019; calc; \u2019'] }
+  const routed = applyProfile({ command: CLAUDE_CMD, env: {} }, spec('claude'), profile, null, MESSAGES.fr, 'powershell')
+  assert.ok(routed.command.includes("'--append-system-prompt=x\u2019\u2019; calc; \u2019\u2019'"), routed.command)
+})
+
+test('under PowerShell and cmd, a backslash is a Windows path character, not an escape', () => {
+  assert.deepEqual(
+    splitWords('--add-dir C:\\Users\\r\\proj "C:\\a b\\c"', false).map((word) => word.value),
+    ['--add-dir', 'C:\\Users\\r\\proj', 'C:\\a b\\c']
+  )
+  const profile = { ...OPUS, extraArgs: ['--add-dir', 'C:\\Users\\r\\proj'] }
+  const ps = applyProfile({ command: "claude '--add-dir' 'C:\\old'", env: {} }, spec('claude'), profile, null, MESSAGES.fr, 'powershell')
+  // `--add-dir` se répète : l'ancien chemin reste intact, le nouveau s'ajoute.
+  assert.ok(ps.command.includes("'--add-dir' 'C:\\Users\\r\\proj'") && ps.command.includes("'C:\\old'"), ps.command)
+  const cmd = 'claude "--model" "C:\\models\\x" "--dangerously-skip-permissions"'
+  assert.equal(readFlag(cmd, '--model', dialectFor('cmd')), 'C:\\models\\x')
+})
+
+test('the form shows an extra argument so that reading it back with the same rules gives it unchanged', () => {
+  const samples = ['plain', 'a b', "it's", 'say "hi"', 'C:\\Users\\r\\proj', '']
+  for (const escapes of [true, false]) {
+    for (const arg of samples) {
+      const words = splitWords(displayArg(arg, escapes), escapes).map((word) => word.value)
+      assert.deepEqual(words, [arg], `${escapes ? 'posix' : 'windows'}: ${arg}`)
+    }
+  }
 })
 
 test('under cmd, a profile without provider writes its words between double quotes, like Orca', () => {

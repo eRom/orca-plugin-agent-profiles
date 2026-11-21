@@ -359,19 +359,33 @@ test('the hook refuses a hand-edited store that puts a provider on a non-Claude 
   await worker.deactivate()
 })
 
-test('the hook refuses a provider profile when the Windows shell set in Orca is not PowerShell', async () => {
+test('under cmd, the hook refuses a provider profile and writes a plain profile in double quotes', async () => {
   const state: { fired?: Promise<unknown> } = {}
   const { deps } = fakeDeps()
-  const host = launchingHost(state, () => worker.hooks.fire('agent.launch.before', launch(CLAUDE_CMD)), { [STORE_KEY]: SAMPLE_STORE })
-  const worker = await mountV2(host, { ...deps, launchShell: () => null })
+  const host = launchingHost(state, () => worker.hooks.fire('agent.launch.before', launch('claude "--dangerously-skip-permissions"')), {
+    [STORE_KEY]: SAMPLE_STORE
+  })
+  const worker = await mountV2(host, { ...deps, launchShell: () => 'cmd' })
   assert.deepEqual(await worker.request('profile.launch', { profileId: DEEPSEEK.id }), {
     ok: false,
     reason: COPY.providerShellUnsupported
   })
   assert.deepEqual(await state.fired, { kind: 'deny', reason: COPY.providerShellUnsupported })
-  // Un profil sans fournisseur ne touche pas au shell : il part normalement.
   assert.deepEqual(await worker.request('profile.launch', { profileId: OPUS.id }), { ok: true })
-  await state.fired
+  const decision = (await state.fired) as Decision
+  assert.equal(decision.event.command, 'claude "--model" "opus" "--effort" "medium" "--dangerously-skip-permissions"')
+  await worker.deactivate()
+})
+
+test('under PowerShell, the hook routes a provider profile with $env: assignments', async () => {
+  const state: { fired?: Promise<unknown> } = {}
+  const { deps } = fakeDeps()
+  const host = launchingHost(state, () => worker.hooks.fire('agent.launch.before', launch(CLAUDE_CMD)), { [STORE_KEY]: SAMPLE_STORE })
+  const worker = await mountV2(host, { ...deps, launchShell: () => 'powershell' })
+  assert.deepEqual(await worker.request('profile.launch', { profileId: DEEPSEEK.id }), { ok: true })
+  const decision = (await state.fired) as Decision
+  assert.ok(decision.event.command.startsWith("$env:ANTHROPIC_BASE_URL='http://localhost:11434'; "), decision.event.command)
+  assert.equal(decision.event.env.ANTHROPIC_AUTH_TOKEN, 'ollama')
   await worker.deactivate()
 })
 

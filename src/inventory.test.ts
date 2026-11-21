@@ -5,7 +5,16 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { assert, test } from 'orca/testing'
 import { AGENTS } from './agents'
-import { enabledAgents, findCommands, listEnabledAgents, orcaUserDataDir, overrideToken, parseShellProbe, readOrcaSettings } from './inventory'
+import {
+  enabledAgents,
+  findCommands,
+  listEnabledAgents,
+  orcaUserDataDir,
+  overrideToken,
+  parseShellProbe,
+  readOrcaSettings,
+  userDataFromPluginFile
+} from './inventory'
 
 const ROMAIN_FOUND = new Set(['claude', 'codex', 'agy', 'grok', 'opencode', 'pi', 'dsh-tui', 'dsh', 'gemini'])
 
@@ -111,6 +120,30 @@ test('finds Orca settings where Orca keeps them on each platform', () => {
   assert.equal(orcaUserDataDir('linux', '/home/r', { XDG_CONFIG_HOME: '/x' }), '/x/orca')
 })
 
+test('finds the data folder of the Orca that installed the plugin, dev instance included', () => {
+  const isUserData = (dir: string) => dir.endsWith('orca-dev') || dir.endsWith('orca')
+  assert.equal(
+    userDataFromPluginFile('C:\\Users\\r\\AppData\\Roaming\\orca-dev\\plugins\\erom.agent-profiles\\06002596\\src\\inventory.ts', isUserData),
+    'C:\\Users\\r\\AppData\\Roaming\\orca-dev'
+  )
+  assert.equal(
+    userDataFromPluginFile('/Users/r/Library/Application Support/orca/plugins/local.agent-profiles/5eb53e04/src/inventory.ts', isUserData),
+    '/Users/r/Library/Application Support/orca'
+  )
+  // Un dossier de développement du plugin n'a pas cette forme : repli sur le dossier par défaut.
+  assert.equal(userDataFromPluginFile('/Users/r/dev/orca-plugins/agent-profiles/src/inventory.ts', isUserData), null)
+  assert.equal(userDataFromPluginFile('/x/plugins/k/h/src/inventory.ts', () => false), null)
+})
+
+test('on Windows, an override keeps its backslashes, drops the PowerShell call operator and expands ~\\', () => {
+  const windows = { platform: 'win32', pathExt: '.EXE', home: 'C:\\Users\\r' }
+  assert.equal(overrideToken('C:\\Users\\r\\bin\\claude.exe --flag', windows), 'C:\\Users\\r\\bin\\claude.exe')
+  assert.equal(overrideToken('& "C:\\Program Files\\Agy\\agy.exe" --x', windows), 'C:\\Program Files\\Agy\\agy.exe')
+  assert.equal(overrideToken('~\\bin\\agy.exe', windows), 'C:\\Users\\r\\bin\\agy.exe')
+  // Hors Windows, rien ne change : l'antislash échappe, `&` est un mot.
+  assert.equal(overrideToken('a\\ b --x', { ...windows, platform: 'darwin' }), 'a b')
+})
+
 test('reads the Windows terminal shell chosen in Orca when there is one', () => {
   const root = orcaUserData({ disabledTuiAgents: [], terminalWindowsShell: 'pwsh.exe' })
   try {
@@ -137,7 +170,7 @@ test('on Windows, searches the PATH with its extensions and never runs a login s
       },
       `C:\\nowhere;${dir}`,
       () => fallbacks++,
-      { platform: 'win32', pathExt: '.COM;.EXE;.BAT;.CMD' }
+      { platform: 'win32', pathExt: '.COM;.EXE;.BAT;.CMD', home: 'C:\\Users\\r' }
     )
     // Sans extension de PATHEXT, un fichier n'est pas une commande Windows.
     assert.deepEqual(found, new Set(['claude', 'codex', join(dir, 'claude')]))

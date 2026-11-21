@@ -25,8 +25,10 @@ type Word = { value: string; start: number; end: number }
 /**
  * Découpe une ligne de commande en mots shell, avec leur position brute. Orca met chaque argument
  * entre guillemets simples (`claude '--model' 'x'`, capturé le 15/11/2026 sur Orca 1.4.259).
+ * `escapes: false` (PowerShell, cmd) : l'antislash est un caractère comme un autre, celui des chemins
+ * Windows ; Orca fait de même sous Windows (`managed-agent-command-token.ts`).
  */
-export function splitWords(command: string): Word[] {
+export function splitWords(command: string, escapes = true): Word[] {
   const words: Word[] = []
   let i = 0
   while (i < command.length) {
@@ -44,12 +46,12 @@ export function splitWords(command: string): Word[] {
       } else if (char === '"') {
         i++
         while (i < command.length && command[i] !== '"') {
-          if (command[i] === '\\' && i + 1 < command.length) i++
+          if (escapes && command[i] === '\\' && i + 1 < command.length) i++
           value += command[i]
           i++
         }
         i++
-      } else if (char === '\\' && i + 1 < command.length) {
+      } else if (escapes && char === '\\' && i + 1 < command.length) {
         value += command[i + 1]
         i += 2
       } else {
@@ -67,8 +69,9 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-/** Met un mot entre les guillemets du shell visé. */
-export type Quote = (value: string) => string
+/** Règles du shell visé : comment y écrire un mot, et si l'antislash y échappe le caractère suivant. */
+export type ShellDialect = { quote: (value: string) => string; escapes: boolean }
+export const POSIX_DIALECT: ShellDialect = { quote: shellQuote, escapes: true }
 
 /** Mots occupés par un flag : `--x v` (deux mots) ou `--x=v` (un mot). */
 function findFlag(words: Word[], flag: string): { start: number; end: number; value: string } | undefined {
@@ -85,14 +88,14 @@ function findFlag(words: Word[], flag: string): { start: number; end: number; va
   return undefined
 }
 
-export function readFlag(command: string, flag: string): string | undefined {
-  return findFlag(splitWords(command), flag)?.value
+export function readFlag(command: string, flag: string, dialect: ShellDialect = POSIX_DIALECT): string | undefined {
+  return findFlag(splitWords(command, dialect.escapes), flag)?.value
 }
 
 /** Remplace la valeur d'un flag, ou l'insère juste après le binaire quand il manque. */
-export function setFlag(command: string, flag: string, value: string, quote: Quote = shellQuote): string {
-  const replacement = `${quote(flag)} ${quote(value)}`
-  const words = splitWords(command)
+export function setFlag(command: string, flag: string, value: string, dialect: ShellDialect = POSIX_DIALECT): string {
+  const replacement = `${dialect.quote(flag)} ${dialect.quote(value)}`
+  const words = splitWords(command, dialect.escapes)
   const current = findFlag(words, flag)
   if (current) return `${command.slice(0, current.start)}${replacement}${command.slice(current.end)}`
   const binaryEnd = words[0]?.end ?? 0
@@ -107,7 +110,13 @@ export function setFlag(command: string, flag: string, value: string, quote: Quo
  * il s'ajoute alors toujours. Un flag seul déjà présent est ignoré. Le reste est inséré d'un bloc,
  * dans l'ordre d'origine, juste après le binaire.
  */
-export function insertArgs(command: string, args: readonly string[], repeatable?: ReadonlySet<string>, quote: Quote = shellQuote): string {
+export function insertArgs(
+  command: string,
+  args: readonly string[],
+  repeatable?: ReadonlySet<string>,
+  dialect: ShellDialect = POSIX_DIALECT
+): string {
+  const words = (text: string) => splitWords(text, dialect.escapes)
   let result = command
   const fresh: string[] = []
   for (let i = 0; i < args.length; i++) {
@@ -122,18 +131,18 @@ export function insertArgs(command: string, args: readonly string[], repeatable?
       i++
     }
     if (pair) {
-      if (!repeatable?.has(pair.flag) && findFlag(splitWords(result), pair.flag)) {
-        result = setFlag(result, pair.flag, pair.value, quote)
+      if (!repeatable?.has(pair.flag) && findFlag(words(result), pair.flag)) {
+        result = setFlag(result, pair.flag, pair.value, dialect)
       } else {
         fresh.push(...pair.words)
       }
-    } else if (!arg.startsWith('-') || !splitWords(result).some((word) => word.value === arg)) {
+    } else if (!arg.startsWith('-') || !words(result).some((word) => word.value === arg)) {
       fresh.push(arg)
     }
   }
   if (fresh.length === 0) return result
-  const binaryEnd = splitWords(result)[0]?.end ?? 0
-  return `${result.slice(0, binaryEnd)} ${fresh.map(quote).join(' ')}${result.slice(binaryEnd)}`
+  const binaryEnd = words(result)[0]?.end ?? 0
+  return `${result.slice(0, binaryEnd)} ${fresh.map(dialect.quote).join(' ')}${result.slice(binaryEnd)}`
 }
 
 /**
@@ -142,8 +151,8 @@ export function insertArgs(command: string, args: readonly string[], repeatable?
  * (`-c model_reasoning_effort=low` de Codex, pas ses autres `-c`). Chaque retrait emporte l'espace qui
  * le précède : le reste de la commande est conservé octet pour octet.
  */
-export function removeOption(command: string, grammar: FlagGrammar): string {
-  const words = splitWords(command)
+export function removeOption(command: string, grammar: FlagGrammar, dialect: ShellDialect = POSIX_DIALECT): string {
+  const words = splitWords(command, dialect.escapes)
   const prefix = grammar.valuePrefix ?? ''
   const ranges: { start: number; end: number }[] = []
   // Le premier mot est le binaire : jamais un flag.
@@ -177,22 +186,27 @@ export type LaunchSettings = { model: string | null; effort: string | null; extr
  * Modèle et effort sont retirés puis réécrits d'un bloc juste après le binaire (toujours deux mots
  * `--flag valeur` : pi ne lit pas `--flag=valeur`), puis les arguments en plus sont insérés.
  */
-export function rewriteForProfile(command: string, spec: AgentSpec, settings: LaunchSettings, quote: Quote = shellQuote): string {
+export function rewriteForProfile(
+  command: string,
+  spec: AgentSpec,
+  settings: LaunchSettings,
+  dialect: ShellDialect = POSIX_DIALECT
+): string {
   let result = command
   const block: string[] = []
   if (settings.model !== null && spec.model) {
-    result = removeOption(result, spec.model)
+    result = removeOption(result, spec.model, dialect)
     block.push(spec.model.flags[0]!, settings.model)
   }
   if (settings.effort !== null && spec.effort) {
-    result = removeOption(result, spec.effort)
+    result = removeOption(result, spec.effort, dialect)
     block.push(spec.effort.flags[0]!, `${spec.effort.valuePrefix ?? ''}${settings.effort}`)
   }
   if (block.length > 0) {
-    const binaryEnd = splitWords(result)[0]?.end ?? 0
-    result = `${result.slice(0, binaryEnd)} ${block.map(quote).join(' ')}${result.slice(binaryEnd)}`
+    const binaryEnd = splitWords(result, dialect.escapes)[0]?.end ?? 0
+    result = `${result.slice(0, binaryEnd)} ${block.map(dialect.quote).join(' ')}${result.slice(binaryEnd)}`
   }
-  return insertArgs(result, settings.extraArgs, new Set(spec.repeatableFlags), quote)
+  return insertArgs(result, settings.extraArgs, new Set(spec.repeatableFlags), dialect)
 }
 
 /** Repli du hook : seuls les profils Claude à fournisseur se reconnaissent à leur modèle. */
@@ -220,24 +234,31 @@ function shellAssignments(references: [string, string][], reason: string): strin
 export type ShellSyntax = 'posix' | 'powershell' | 'cmd'
 
 /**
- * Hors Windows, un shell POSIX. Sous Windows, le réglage `terminalWindowsShell` d'Orca, PowerShell par
- * défaut : Orca y tape `claude '--x'`, et `claude "--x"` sous `cmd.exe` (constaté le 21/11/2026 sur
- * Orca 1.4.268). `null` : autre shell Windows (WSL, Git Bash…), jamais observé.
+ * Hors Windows, un shell POSIX. Sous Windows, le réglage `terminalWindowsShell` d'Orca, classé comme le
+ * fait Orca (`resolveWindowsShellStartupFamily`) : `cmd.exe` à part, Git Bash et WSL en POSIX, tout le
+ * reste en PowerShell, le défaut. Orca y tape `claude '--x'`, et `claude "--x"` sous `cmd.exe`
+ * (constaté le 21/11/2026 sur Orca 1.4.268).
  */
-export function launchShellSyntax(platform: string, windowsShell: string | undefined): ShellSyntax | null {
+export function launchShellSyntax(platform: string, windowsShell: string | undefined): ShellSyntax {
   if (platform !== 'win32') return 'posix'
-  if (!windowsShell) return 'powershell'
-  const name = (windowsShell.split(/[\\/]/).pop() ?? '').toLowerCase()
-  if (['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe'].includes(name)) return 'powershell'
-  return name === 'cmd' || name === 'cmd.exe' ? 'cmd' : null
+  const shell = windowsShell?.trim() ?? ''
+  if (shell === '') return 'powershell'
+  if (shell === 'git-bash') return 'posix'
+  const name = (shell.split(/[\\/]/).pop() ?? '').toLowerCase()
+  if (name === 'cmd.exe') return 'cmd'
+  return ['wsl.exe', 'wsl', 'bash.exe', 'bash'].includes(name) ? 'posix' : 'powershell'
 }
 
-/** Les fournisseurs passent par des variables posées en tête de commande : seuls zsh et PowerShell sont pris en charge. */
-export const supportsProviders = (syntax: ShellSyntax | null): boolean => syntax === 'posix' || syntax === 'powershell'
+/** Les fournisseurs passent par des variables posées en tête de commande : pas de prise en charge sous cmd. */
+export const supportsProviders = (syntax: ShellSyntax): boolean => syntax !== 'cmd'
 
-/** Chaîne PowerShell entre apostrophes : rien n'y est développé, une apostrophe se double. */
+/**
+ * Chaîne PowerShell entre apostrophes : rien n'y est développé, une apostrophe se double. PowerShell
+ * ferme aussi la chaîne sur les apostrophes typographiques : elles se doublent de même (comme
+ * `quotePowerShellLiteral` d'Orca).
+ */
 function powerShellQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
+  return `'${value.replace(/['‘’‚‛]/g, '$&$&')}'`
 }
 
 /** Mot entre guillemets doubles pour cmd, comme Orca les écrit ; un guillemet intérieur se double. */
@@ -245,11 +266,22 @@ function cmdQuote(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
-/** Guillemets du shell visé ; un shell inconnu garde ceux d'avant la prise en charge de Windows. */
-export function quoteFor(syntax: ShellSyntax | null): Quote {
-  if (syntax === 'powershell') return powerShellQuote
-  if (syntax === 'cmd') return cmdQuote
-  return shellQuote
+/** Règles d'écriture et de lecture des mots dans le shell visé. */
+export function dialectFor(syntax: ShellSyntax): ShellDialect {
+  if (syntax === 'powershell') return { quote: powerShellQuote, escapes: false }
+  if (syntax === 'cmd') return { quote: cmdQuote, escapes: false }
+  return POSIX_DIALECT
+}
+
+/**
+ * Mot d'un argument en plus tel que le formulaire l'affiche, relisible par `splitWords` avec les mêmes
+ * règles : quoté seulement s'il contient un blanc, un guillemet ou un antislash.
+ */
+export function displayArg(arg: string, escapes: boolean): string {
+  if (arg !== '' && !/[\s'"\\]/.test(arg)) return arg
+  if (escapes) return shellQuote(arg)
+  // Sans échappement, une apostrophe ne se représente qu'entre guillemets doubles, et inversement.
+  return arg.includes("'") ? `"${arg}"` : `'${arg}'`
 }
 
 /**
@@ -274,9 +306,9 @@ export function applyProfile(
   profile: Profile,
   provider: Provider | null,
   messages: Messages,
-  syntax: ShellSyntax | null = 'posix'
+  syntax: ShellSyntax = 'posix'
 ): { command: string; env: Record<string, string> } {
-  const command = rewriteForProfile(event.command, spec, profile, quoteFor(syntax))
+  const command = rewriteForProfile(event.command, spec, profile, dialectFor(syntax))
   // Sans fournisseur (tout agent autre que Claude, ou Claude sur son compte) : seule la commande change.
   if (provider === null) return { command, env: event.env }
   // Le hook refuse avant d'arriver ici : jamais d'affectation POSIX tapée dans cmd.

@@ -6,7 +6,7 @@ import { agentById } from './agents'
 import { listAvatarFiles, pluginDirectory } from './avatars'
 import { LOCALES, localeOf, MESSAGES, type Locale, type Messages } from './copy'
 import { detectAgents, enabledAgents, REAL_INVENTORY_DEPS, type Inventory, type InventoryDeps } from './inventory'
-import { applyProfile, findProfileByModel, readFlag, supportsProviders } from './launch'
+import { applyProfile, dialectFor, findProfileByModel, readFlag, supportsProviders } from './launch'
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
 import {
   EMPTY_STORE,
@@ -299,6 +299,8 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
       pending && pending.agentId === event.agent && Date.now() - pending.at < PENDING_TTL_MS ? pending : null
     if (fromPending) pending = null
 
+    // Lu à chaque lancement : le shell des terminaux peut changer dans les réglages d'Orca sans redémarrage.
+    const syntax = deps.launchShell()
     let profile: Profile | undefined
     if (fromPending) {
       profile = store.profiles.find((p) => p.id === fromPending.profileId)
@@ -309,7 +311,7 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
         return { deny: lastDenyReason }
       }
     } else if (event.agent === 'claude') {
-      profile = findProfileByModel(store.profiles, readFlag(event.command, '--model'))
+      profile = findProfileByModel(store.profiles, readFlag(event.command, '--model', dialectFor(syntax)))
     }
     if (!profile) return undefined
     const chosen = profile
@@ -328,7 +330,6 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     const provider = chosen.providerId === null ? null : store.providers.find((p) => p.id === chosen.providerId)
     if (provider === undefined) return deny(m().profileProviderMissing(chosen.name), 'provider-missing')
 
-    const syntax = deps.launchShell()
     if (provider !== null && !supportsProviders(syntax)) return deny(m().providerShellUnsupported, 'shell-unsupported')
     const applied = applyProfile(event, spec, chosen, provider, m(), syntax)
     orca.log(`profile=${chosen.id} agent=${chosen.agentId} via=${fromPending?.source ?? 'model-flag'}`)

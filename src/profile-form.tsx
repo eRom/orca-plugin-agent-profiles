@@ -3,13 +3,19 @@ import { atom, Button, Callout, Field, Heading, Input, plugin, read, Row, Select
 import { agentById } from './agents'
 import type { Messages } from './copy'
 import { copy } from './panel-copy'
-import { shellQuote, splitWords } from './launch'
+import { displayArg, splitWords } from './launch'
 import { newId, type FieldErrors, type Profile, type Store } from './store'
 
 /** Valeurs de remplacement : un `Select` dont une option vaut '' est abandonné en entier par Orca. */
 const NO_AVATAR = 'none'
 const DEFAULT_EFFORT = 'default'
 const NO_PROVIDER = 'none'
+
+/**
+ * Sous Windows, l'antislash des arguments en plus est celui des chemins (`--add-dir C:\proj`), pas un
+ * échappement. Le panneau n'a pas d'API de plateforme : on lit l'agent utilisateur d'Electron.
+ */
+const ESCAPES = !/Windows/i.test((globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent ?? '')
 
 type Draft = {
   id: string
@@ -41,7 +47,7 @@ export function openProfileForm(agentId: string, profile: Profile | null): void 
         providerId: profile.providerId ?? NO_PROVIDER,
         model: profile.model ?? '',
         effort: profile.effort ?? DEFAULT_EFFORT,
-        extraArgs: profile.extraArgs.map(displayArg).join('\n')
+        extraArgs: profile.extraArgs.map((arg) => displayArg(arg, ESCAPES)).join("\n")
       }
     : {
         id: newId('profile'),
@@ -72,12 +78,9 @@ function toProfile(draft: Draft): Profile {
     effort: spec?.effort && draft.effort !== DEFAULT_EFFORT ? draft.effort : null,
     providerId: spec?.supportsProvider && draft.providerId !== NO_PROVIDER ? draft.providerId : null,
     // Chaque ligne se découpe en mots, guillemets respectés : `--note "a b"` donne deux arguments.
-    extraArgs: draft.extraArgs.split(/\r?\n/).flatMap((line) => splitWords(line).map((word) => word.value))
+    extraArgs: draft.extraArgs.split(/\r?\n/).flatMap((line) => splitWords(line, ESCAPES).map((word) => word.value))
   }
 }
-
-/** Un argument qui contient un espace ou un guillemet s'affiche quoté, pour que l'enregistrer de nouveau le garde entier. */
-const displayArg = (arg: string): string => (/[\s'"\\]/.test(arg) || arg === '' ? shellQuote(arg) : arg)
 
 function close(): void {
   set(profileForm, null)
