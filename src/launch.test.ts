@@ -5,11 +5,13 @@ import {
   applyProfile,
   findProfileByModel,
   insertArgs,
+  launchShellSyntax,
   readFlag,
   removeOption,
   rewriteForProfile,
   setFlag,
-  splitWords
+  splitWords,
+  supportsProviders
 } from './launch'
 import { agentById } from './agents'
 import { MESSAGES } from './copy'
@@ -129,6 +131,54 @@ test('the shell failure text of a missing $NAME follows the language of the mess
     routed.command
   )
   assert.ok(!routed.command.includes('absente du shell'))
+})
+
+test('under PowerShell, routing and $NAME references use PowerShell syntax', () => {
+  const provider = { ...OPENROUTER, baseUrl: "https://host/it's", extraEnv: { HTTP_PROXY: '$MY_PROXY', LOG_LEVEL: 'debug' } }
+  const routed = applyProfile({ command: CLAUDE_CMD, env: {} }, spec('claude'), DEEPSEEK, provider, MESSAGES.fr, 'powershell')
+  const missing = (name: string) => `if (-not $env:${name}) { throw '${name}: ${MESSAGES.fr.envMissingWindows.replace(/'/g, "''")}' }`
+  const prefix =
+    "$env:ANTHROPIC_BASE_URL='https://host/it''s'; $env:ANTHROPIC_API_KEY=''; " +
+    `${missing('OPENROUTER_API_KEY')}; $env:ANTHROPIC_AUTH_TOKEN=$env:OPENROUTER_API_KEY; ` +
+    `${missing('MY_PROXY')}; $env:HTTP_PROXY=$env:MY_PROXY; ` +
+    'claude '
+  assert.ok(routed.command.startsWith(prefix), routed.command)
+  assert.equal(readFlag(routed.command, '--model'), 'deepseek-v4.1-flash:cloud[1m]')
+  assert.equal(Object.hasOwn(routed.env, 'ANTHROPIC_AUTH_TOKEN'), false)
+  assert.equal(routed.env.LOG_LEVEL, 'debug')
+  assert.equal(routed.env.ANTHROPIC_BASE_URL, "https://host/it's")
+})
+
+test('under PowerShell, a literal token stays out of the command line', () => {
+  const routed = applyProfile({ command: CLAUDE_CMD, env: {} }, spec('claude'), DEEPSEEK, OLLAMA, MESSAGES.en, 'powershell')
+  assert.ok(routed.command.startsWith("$env:ANTHROPIC_BASE_URL='http://localhost:11434'; $env:ANTHROPIC_API_KEY=''; claude "))
+  assert.equal(routed.env.ANTHROPIC_AUTH_TOKEN, 'ollama')
+})
+
+test('picks the launch shell syntax from the platform and the Windows shell set in Orca', () => {
+  assert.equal(launchShellSyntax('darwin', 'cmd.exe'), 'posix')
+  assert.equal(launchShellSyntax('linux', undefined), 'posix')
+  // Sans réglage lisible, Orca lance PowerShell sous Windows.
+  assert.equal(launchShellSyntax('win32', undefined), 'powershell')
+  for (const shell of ['powershell.exe', 'pwsh.exe', 'C:\\Program Files\\PowerShell\\7\\PWSH.EXE']) {
+    assert.equal(launchShellSyntax('win32', shell), 'powershell', shell)
+  }
+  assert.equal(launchShellSyntax('win32', 'cmd.exe'), 'cmd')
+  assert.equal(launchShellSyntax('win32', 'wsl.exe'), null)
+  assert.ok(supportsProviders('posix') && supportsProviders('powershell'))
+  assert.ok(!supportsProviders('cmd') && !supportsProviders(null))
+})
+
+test('under cmd, a profile without provider writes its words between double quotes, like Orca', () => {
+  const orcaCmd = 'claude "--dangerously-skip-permissions"'
+  const routed = applyProfile({ command: orcaCmd, env: {} }, spec('claude'), OPUS, null, MESSAGES.fr, 'cmd')
+  assert.equal(routed.command, 'claude "--model" "opus" "--effort" "medium" "--dangerously-skip-permissions"')
+})
+
+test('under PowerShell, a word with an apostrophe doubles it', () => {
+  const profile = { ...OPUS, extraArgs: ["--append-system-prompt=l'agent"] }
+  const routed = applyProfile({ command: CLAUDE_CMD, env: {} }, spec('claude'), profile, null, MESSAGES.fr, 'powershell')
+  assert.ok(routed.command.includes("'--append-system-prompt=l''agent'"), routed.command)
 })
 
 test('a base URL with a quote stays one quoted assignment', () => {

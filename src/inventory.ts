@@ -1,15 +1,16 @@
 // Inventaire des agents que l'utilisateur a activés dans Orca : réglages lus (en lecture seule) dans la
-// base SQLite d'Orca, commandes cherchées par un shell de login. Reproduit la règle de détection d'Orca
+// base SQLite d'Orca, commandes cherchées par un shell de login (dans le PATH sous Windows). Reproduit la règle de détection d'Orca
 // (src/main/preflight/installed-agent-detection.ts) : agent non désactivé, installé, dépendances présentes.
 import { accessSync, constants, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { AGENTS } from './agents'
-import { shellQuote, splitWords } from './launch'
+import { launchShellSyntax, shellQuote, splitWords, type ShellSyntax } from './launch'
 
-export type OrcaSettings = { disabled: readonly string[]; overrides: Readonly<Record<string, string>> }
+/** `windowsShell` : réglage `terminalWindowsShell` d'Orca, présent seulement s'il est lisible. */
+export type OrcaSettings = { disabled: readonly string[]; overrides: Readonly<Record<string, string>>; windowsShell?: string }
 export type Inventory = { agents: string[]; settingsReadable: boolean; detectedAt: number }
 export type ShellRunner = (script: string) => Promise<{ ok: boolean; stdout: string }>
 export type InventoryDeps = {
@@ -17,9 +18,25 @@ export type InventoryDeps = {
   /** `onFallback` est appelé quand le shell de login a échoué et que la recherche est retombée sur le PATH. */
   findCommands: (tokens: readonly string[], onFallback?: () => void) => Promise<ReadonlySet<string>>
   now: () => number
+  /** Syntaxe du shell où Orca lance les agents ; `null` si ce shell n'est pas pris en charge. */
+  launchShell: () => ShellSyntax | null
 }
 
-export const ORCA_USER_DATA = join(homedir(), 'Library/Application Support/orca')
+/** Système hôte : seul Windows change la recherche des commandes. */
+export type HostSystem = { platform: string; pathExt: string }
+const HOST_SYSTEM: HostSystem = { platform: process.platform, pathExt: process.env.PATHEXT ?? '' }
+
+/**
+ * Dossier de données d'Orca (le `userData` d'Electron). Sous Windows, le worker ne reçoit pas APPDATA
+ * (constaté le 21/11/2026 sur Orca 1.4.268) : on le déduit du dossier personnel. Linux n'est pas vérifié.
+ */
+export function orcaUserDataDir(platform: string, home: string, env: Record<string, string | undefined>): string {
+  if (platform === 'darwin') return posix.join(home, 'Library/Application Support/orca')
+  if (platform === 'win32') return win32.join(env.APPDATA || win32.join(home, 'AppData', 'Roaming'), 'orca')
+  return posix.join(env.XDG_CONFIG_HOME || posix.join(home, '.config'), 'orca')
+}
+
+export const ORCA_USER_DATA = orcaUserDataDir(process.platform, homedir(), process.env)
 
 const PROBE_MARKER = '__AGENT_PROFILES__'
 const SHELL_TIMEOUT_MS = 15_000
@@ -89,9 +106,14 @@ export function readOrcaSettings(userDataDir: string = ORCA_USER_DATA): OrcaSett
     db = new DatabaseSync(join(userDataDir, 'profiles', index.activeProfileId, 'profile-state.db'), { readOnly: true })
     const row = db.prepare("select payload from profile_state_documents where domain='settings'").get()
     if (!row) return null
-    const payload = JSON.parse(String(row.payload)) as { disabledTuiAgents?: unknown; agentCmdOverrides?: unknown }
+    const payload = JSON.parse(String(row.payload)) as {
+      disabledTuiAgents?: unknown
+      agentCmdOverrides?: unknown
+      terminalWindowsShell?: unknown
+    }
     if (!isStringArray(payload.disabledTuiAgents)) return null
-    return { disabled: payload.disabledTuiAgents, overrides: asStringRecord(payload.agentCmdOverrides) }
+    const settings: OrcaSettings = { disabled: payload.disabledTuiAgents, overrides: asStringRecord(payload.agentCmdOverrides) }
+    return typeof payload.terminalWindowsShell === 'string' ? { ...settings, windowsShell: payload.terminalWindowsShell } : settings
   } catch {
     return null
   } finally {
@@ -132,10 +154,31 @@ function isExecutable(path: string): boolean {
   }
 }
 
-/** Repli sans shell : cherche chaque nom dans les dossiers du PATH. */
-function searchPath(names: readonly string[], pathEnv: string): Set<string> {
-  const directories = pathEnv.split(':').filter((directory) => directory !== '')
-  return new Set(names.filter((name) => directories.some((directory) => isExecutable(join(directory, name)))))
+/** Extensions de PATHEXT, en minuscules : `.EXE;.CMD` donne `['.exe', '.cmd']`. */
+function windowsExtensions(pathExt: string): string[] {
+  return pathExt
+    .split(';')
+    .map((extension) => extension.trim().toLowerCase())
+    .filter((extension) => extension.startsWith('.'))
+}
+
+/** Fichiers qui feraient de `path` une commande : lui-même, ou sous Windows lui-même suivi d'une extension de PATHEXT. */
+function commandCandidates(path: string, system: HostSystem): string[] {
+  if (system.platform !== 'win32') return [path]
+  const extensions = windowsExtensions(system.pathExt)
+  // `claude.exe` déjà nommé avec son extension : rien à ajouter.
+  if (extensions.some((extension) => path.toLowerCase().endsWith(extension))) return [path]
+  return extensions.map((extension) => path + extension)
+}
+
+const isCommand = (path: string, system: HostSystem): boolean =>
+  commandCandidates(path, system).some((candidate) => isExecutable(candidate))
+
+/** Recherche sans shell : chaque nom dans les dossiers du PATH (`;` sous Windows, `:` ailleurs). */
+function searchPath(names: readonly string[], pathEnv: string, system: HostSystem): Set<string> {
+  const delimiter = system.platform === 'win32' ? ';' : ':'
+  const directories = pathEnv.split(delimiter).filter((directory) => directory !== '')
+  return new Set(names.filter((name) => directories.some((directory) => isCommand(join(directory, name), system))))
 }
 
 /** Lance le script dans un shell de login (le PATH de l'utilisateur) ; `ok: false` en cas d'échec ou de délai dépassé. */
@@ -171,22 +214,29 @@ export async function findCommands(
   tokens: readonly string[],
   runShell: ShellRunner = runLoginShell,
   pathEnv: string = process.env.PATH ?? '',
-  onFallback?: () => void
+  onFallback?: () => void,
+  system: HostSystem = HOST_SYSTEM
 ): Promise<ReadonlySet<string>> {
+  const windows = system.platform === 'win32'
   const found = new Set<string>()
   const names: string[] = []
   for (const token of new Set(tokens)) {
-    if (token.includes('/')) {
-      if (isExecutable(token)) found.add(token)
+    if (token.includes('/') || (windows && token.includes('\\'))) {
+      if (isCommand(token, system)) found.add(token)
     } else {
       names.push(token)
     }
   }
   if (names.length === 0) return found
+  // Pas de zsh sous Windows : le PATH du worker (enrichi par Orca) est la seule source, ce n'est pas un repli.
+  if (windows) {
+    for (const name of searchPath(names, pathEnv, system)) found.add(name)
+    return found
+  }
   const probe = await runShell(probeScript(names))
   const parsed = probe.ok ? parseShellProbe(probe.stdout) : null
   if (parsed === null) onFallback?.()
-  const resolved = parsed ?? searchPath(names, pathEnv)
+  const resolved = parsed ?? searchPath(names, pathEnv, system)
   for (const name of resolved) found.add(name)
   return found
 }
@@ -194,5 +244,6 @@ export async function findCommands(
 export const REAL_INVENTORY_DEPS: InventoryDeps = {
   readSettings: () => readOrcaSettings(),
   findCommands: (tokens, onFallback) => findCommands(tokens, undefined, undefined, onFallback),
-  now: Date.now
+  now: Date.now,
+  launchShell: () => launchShellSyntax(process.platform, readOrcaSettings()?.windowsShell)
 }

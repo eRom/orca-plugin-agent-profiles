@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { assert, test } from 'orca/testing'
 import { AGENTS } from './agents'
-import { enabledAgents,findCommands, listEnabledAgents, overrideToken, parseShellProbe, readOrcaSettings } from './inventory'
+import { enabledAgents, findCommands, listEnabledAgents, orcaUserDataDir, overrideToken, parseShellProbe, readOrcaSettings } from './inventory'
 
 const ROMAIN_FOUND = new Set(['claude', 'codex', 'agy', 'grok', 'opencode', 'pi', 'dsh-tui', 'dsh', 'gemini'])
 
@@ -40,7 +40,8 @@ test('unreadable settings show every installed agent and say so', async () => {
   const inventory = await listEnabledAgents({
     readSettings: () => null,
     findCommands: async () => new Set(['claude', 'gemini']),
-    now: () => 42
+    now: () => 42,
+    launchShell: () => 'posix'
   })
   assert.deepEqual(inventory, { agents: ['claude', 'gemini'], settingsReadable: false, detectedAt: 42 })
 })
@@ -99,6 +100,52 @@ test('tells the caller when the login shell failed and the PATH answered instead
   // Une sortie sans marqueurs vaut un échec du shell.
   await findCommands(['fakeagent'], async () => ({ ok: true, stdout: 'noise' }), '', () => fallbacks++)
   assert.equal(fallbacks, 2)
+})
+
+test('finds Orca settings where Orca keeps them on each platform', () => {
+  assert.equal(orcaUserDataDir('darwin', '/Users/r', {}), '/Users/r/Library/Application Support/orca')
+  // Le worker d'Orca sous Windows ne reçoit pas APPDATA (constaté le 21/11/2026 sur Orca 1.4.268).
+  assert.equal(orcaUserDataDir('win32', 'C:\\Users\\r', {}), 'C:\\Users\\r\\AppData\\Roaming\\orca')
+  assert.equal(orcaUserDataDir('win32', 'C:\\Users\\r', { APPDATA: 'D:\\Roaming' }), 'D:\\Roaming\\orca')
+  assert.equal(orcaUserDataDir('linux', '/home/r', {}), '/home/r/.config/orca')
+  assert.equal(orcaUserDataDir('linux', '/home/r', { XDG_CONFIG_HOME: '/x' }), '/x/orca')
+})
+
+test('reads the Windows terminal shell chosen in Orca when there is one', () => {
+  const root = orcaUserData({ disabledTuiAgents: [], terminalWindowsShell: 'pwsh.exe' })
+  try {
+    assert.deepEqual(readOrcaSettings(root), { disabled: [], overrides: {}, windowsShell: 'pwsh.exe' })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('on Windows, searches the PATH with its extensions and never runs a login shell', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agent-profiles-win-'))
+  try {
+    // Exécutables pour le Mac qui fait tourner le test ; sous Windows, X_OK ne vérifie que l'existence.
+    writeFileSync(join(dir, 'claude.exe'), '', { mode: 0o755 })
+    writeFileSync(join(dir, 'codex.cmd'), '', { mode: 0o755 })
+    writeFileSync(join(dir, 'agy'), '', { mode: 0o755 })
+    let shells = 0
+    let fallbacks = 0
+    const found = await findCommands(
+      ['claude', 'codex', 'agy', 'absent', join(dir, 'claude')],
+      async () => {
+        shells++
+        return { ok: false, stdout: '' }
+      },
+      `C:\\nowhere;${dir}`,
+      () => fallbacks++,
+      { platform: 'win32', pathExt: '.COM;.EXE;.BAT;.CMD' }
+    )
+    // Sans extension de PATHEXT, un fichier n'est pas une commande Windows.
+    assert.deepEqual(found, new Set(['claude', 'codex', join(dir, 'claude')]))
+    assert.equal(shells, 0)
+    assert.equal(fallbacks, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('does not call the fallback hook when the login shell answered', async () => {

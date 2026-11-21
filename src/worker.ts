@@ -6,7 +6,7 @@ import { agentById } from './agents'
 import { listAvatarFiles, pluginDirectory } from './avatars'
 import { LOCALES, localeOf, MESSAGES, type Locale, type Messages } from './copy'
 import { detectAgents, enabledAgents, REAL_INVENTORY_DEPS, type Inventory, type InventoryDeps } from './inventory'
-import { applyProfile, findProfileByModel, readFlag } from './launch'
+import { applyProfile, findProfileByModel, readFlag, supportsProviders } from './launch'
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
 import {
   EMPTY_STORE,
@@ -328,7 +328,9 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     const provider = chosen.providerId === null ? null : store.providers.find((p) => p.id === chosen.providerId)
     if (provider === undefined) return deny(m().profileProviderMissing(chosen.name), 'provider-missing')
 
-    const applied = applyProfile(event, spec, chosen, provider, m())
+    const syntax = deps.launchShell()
+    if (provider !== null && !supportsProviders(syntax)) return deny(m().providerShellUnsupported, 'shell-unsupported')
+    const applied = applyProfile(event, spec, chosen, provider, m(), syntax)
     orca.log(`profile=${chosen.id} agent=${chosen.agentId} via=${fromPending?.source ?? 'model-flag'}`)
     return next({ ...event, ...applied })
   })

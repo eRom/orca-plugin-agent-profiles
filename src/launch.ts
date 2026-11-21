@@ -67,6 +67,9 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
+/** Met un mot entre les guillemets du shell visé. */
+export type Quote = (value: string) => string
+
 /** Mots occupés par un flag : `--x v` (deux mots) ou `--x=v` (un mot). */
 function findFlag(words: Word[], flag: string): { start: number; end: number; value: string } | undefined {
   for (let k = 0; k < words.length; k++) {
@@ -87,8 +90,8 @@ export function readFlag(command: string, flag: string): string | undefined {
 }
 
 /** Remplace la valeur d'un flag, ou l'insère juste après le binaire quand il manque. */
-export function setFlag(command: string, flag: string, value: string): string {
-  const replacement = `${shellQuote(flag)} ${shellQuote(value)}`
+export function setFlag(command: string, flag: string, value: string, quote: Quote = shellQuote): string {
+  const replacement = `${quote(flag)} ${quote(value)}`
   const words = splitWords(command)
   const current = findFlag(words, flag)
   if (current) return `${command.slice(0, current.start)}${replacement}${command.slice(current.end)}`
@@ -104,7 +107,7 @@ export function setFlag(command: string, flag: string, value: string): string {
  * il s'ajoute alors toujours. Un flag seul déjà présent est ignoré. Le reste est inséré d'un bloc,
  * dans l'ordre d'origine, juste après le binaire.
  */
-export function insertArgs(command: string, args: readonly string[], repeatable?: ReadonlySet<string>): string {
+export function insertArgs(command: string, args: readonly string[], repeatable?: ReadonlySet<string>, quote: Quote = shellQuote): string {
   let result = command
   const fresh: string[] = []
   for (let i = 0; i < args.length; i++) {
@@ -120,7 +123,7 @@ export function insertArgs(command: string, args: readonly string[], repeatable?
     }
     if (pair) {
       if (!repeatable?.has(pair.flag) && findFlag(splitWords(result), pair.flag)) {
-        result = setFlag(result, pair.flag, pair.value)
+        result = setFlag(result, pair.flag, pair.value, quote)
       } else {
         fresh.push(...pair.words)
       }
@@ -130,7 +133,7 @@ export function insertArgs(command: string, args: readonly string[], repeatable?
   }
   if (fresh.length === 0) return result
   const binaryEnd = splitWords(result)[0]?.end ?? 0
-  return `${result.slice(0, binaryEnd)} ${fresh.map(shellQuote).join(' ')}${result.slice(binaryEnd)}`
+  return `${result.slice(0, binaryEnd)} ${fresh.map(quote).join(' ')}${result.slice(binaryEnd)}`
 }
 
 /**
@@ -174,7 +177,7 @@ export type LaunchSettings = { model: string | null; effort: string | null; extr
  * Modèle et effort sont retirés puis réécrits d'un bloc juste après le binaire (toujours deux mots
  * `--flag valeur` : pi ne lit pas `--flag=valeur`), puis les arguments en plus sont insérés.
  */
-export function rewriteForProfile(command: string, spec: AgentSpec, settings: LaunchSettings): string {
+export function rewriteForProfile(command: string, spec: AgentSpec, settings: LaunchSettings, quote: Quote = shellQuote): string {
   let result = command
   const block: string[] = []
   if (settings.model !== null && spec.model) {
@@ -187,9 +190,9 @@ export function rewriteForProfile(command: string, spec: AgentSpec, settings: La
   }
   if (block.length > 0) {
     const binaryEnd = splitWords(result)[0]?.end ?? 0
-    result = `${result.slice(0, binaryEnd)} ${block.map(shellQuote).join(' ')}${result.slice(binaryEnd)}`
+    result = `${result.slice(0, binaryEnd)} ${block.map(quote).join(' ')}${result.slice(binaryEnd)}`
   }
-  return insertArgs(result, settings.extraArgs, new Set(spec.repeatableFlags))
+  return insertArgs(result, settings.extraArgs, new Set(spec.repeatableFlags), quote)
 }
 
 /** Repli du hook : seuls les profils Claude à fournisseur se reconnaissent à leur modèle. */
@@ -213,6 +216,55 @@ function shellAssignments(references: [string, string][], reason: string): strin
   return references.map(([target, ref]) => `${target}="\${${ref}:?${reason}}"`).join(' ')
 }
 
+/** Syntaxe du shell dans lequel Orca tape la commande de l'agent. */
+export type ShellSyntax = 'posix' | 'powershell' | 'cmd'
+
+/**
+ * Hors Windows, un shell POSIX. Sous Windows, le réglage `terminalWindowsShell` d'Orca, PowerShell par
+ * défaut : Orca y tape `claude '--x'`, et `claude "--x"` sous `cmd.exe` (constaté le 21/11/2026 sur
+ * Orca 1.4.268). `null` : autre shell Windows (WSL, Git Bash…), jamais observé.
+ */
+export function launchShellSyntax(platform: string, windowsShell: string | undefined): ShellSyntax | null {
+  if (platform !== 'win32') return 'posix'
+  if (!windowsShell) return 'powershell'
+  const name = (windowsShell.split(/[\\/]/).pop() ?? '').toLowerCase()
+  if (['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe'].includes(name)) return 'powershell'
+  return name === 'cmd' || name === 'cmd.exe' ? 'cmd' : null
+}
+
+/** Les fournisseurs passent par des variables posées en tête de commande : seuls zsh et PowerShell sont pris en charge. */
+export const supportsProviders = (syntax: ShellSyntax | null): boolean => syntax === 'posix' || syntax === 'powershell'
+
+/** Chaîne PowerShell entre apostrophes : rien n'y est développé, une apostrophe se double. */
+function powerShellQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
+/** Mot entre guillemets doubles pour cmd, comme Orca les écrit ; un guillemet intérieur se double. */
+function cmdQuote(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+/** Guillemets du shell visé ; un shell inconnu garde ceux d'avant la prise en charge de Windows. */
+export function quoteFor(syntax: ShellSyntax | null): Quote {
+  if (syntax === 'powershell') return powerShellQuote
+  if (syntax === 'cmd') return cmdQuote
+  return shellQuote
+}
+
+/**
+ * Équivalent PowerShell du préfixe POSIX : `throw` arrête la ligne avant l'agent si la variable manque
+ * (vérifié le 21/11/2026 dans un terminal Orca sous Windows PowerShell 5.1). Comme sous zsh avec `env`,
+ * les variables restent posées dans le terminal de l'agent une fois celui-ci fermé.
+ */
+function powerShellPrefix(baseUrl: string, references: [string, string][], reason: string): string {
+  const parts = [`$env:ANTHROPIC_BASE_URL=${powerShellQuote(baseUrl)}`, "$env:ANTHROPIC_API_KEY=''"]
+  for (const [target, ref] of references) {
+    parts.push(`if (-not $env:${ref}) { throw ${powerShellQuote(`${ref}: ${reason}`)} }`, `$env:${target}=$env:${ref}`)
+  }
+  return `${parts.join('; ')};`
+}
+
 /** Nom de variable valide pour le shell : défense contre un store modifié à la main. */
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -221,11 +273,14 @@ export function applyProfile(
   spec: AgentSpec,
   profile: Profile,
   provider: Provider | null,
-  messages: Messages
+  messages: Messages,
+  syntax: ShellSyntax | null = 'posix'
 ): { command: string; env: Record<string, string> } {
-  const command = rewriteForProfile(event.command, spec, profile)
+  const command = rewriteForProfile(event.command, spec, profile, quoteFor(syntax))
   // Sans fournisseur (tout agent autre que Claude, ou Claude sur son compte) : seule la commande change.
   if (provider === null) return { command, env: event.env }
+  // Le hook refuse avant d'arriver ici : jamais d'affectation POSIX tapée dans cmd.
+  if (!supportsProviders(syntax)) throw new Error(`providers are not supported under shell syntax ${syntax}`)
 
   const env = { ...event.env }
   const references: [string, string][] = []
@@ -247,6 +302,9 @@ export function applyProfile(
   // Affectations en tête : l'URL et la clé vide (non secrètes) d'abord, puis les références `$NOM`.
   // Un `export` plus loin dans ~/.zshenv ne peut ainsi écraser ni l'un ni l'autre. Un jeton littéral
   // reste dans `env` seulement : il pourrait être un secret, et la ligne de commande se journalise.
+  if (syntax === 'powershell') {
+    return { command: `${powerShellPrefix(provider.baseUrl, references, messages.envMissingWindows)} ${command}`, env }
+  }
   const routing = `ANTHROPIC_BASE_URL=${shellQuote(provider.baseUrl)} ANTHROPIC_API_KEY=''`
   const prefix = references.length > 0 ? `${routing} ${shellAssignments(references, messages.envMissing)}` : routing
   return { command: `${prefix} ${command}`, env }

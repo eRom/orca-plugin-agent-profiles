@@ -35,6 +35,9 @@ export type Messages = {
   literalToken: string
   /** Inséré dans `${NOM:?…}` du shell : ni `"`, ni `}`, ni `$`, ni accent grave, ni antislash. */
   envMissing: string
+  /** Même rôle sous Windows PowerShell, dans une chaîne entre apostrophes : aucun caractère interdit. */
+  envMissingWindows: string
+  providerShellUnsupported: string
 
   // Panneau : groupes par agent, fournisseurs, états.
   tabProviders: string
@@ -111,6 +114,9 @@ const fr: Messages = {
   launched: (name) => `« ${name} » lancé.`,
   literalToken: 'Jeton stocké en clair dans le plugin ; préfère une référence $NOM.',
   envMissing: 'absente du shell, exporte-la dans ~/.zshenv',
+  envMissingWindows: "absente du shell, crée-la dans les variables d'environnement de ton compte Windows, puis redémarre Orca",
+  providerShellUnsupported:
+    "Les fournisseurs demandent PowerShell sous Windows : choisis-le comme shell des terminaux dans les réglages d'Orca.",
 
   tabProviders: 'Fournisseurs',
   newProfileFor: (label) => `Nouveau profil ${label}`,
@@ -194,6 +200,8 @@ const en: Messages = {
   launched: (name) => `"${name}" launched.`,
   literalToken: 'Token stored in plain text in the plugin; prefer a $NAME reference.',
   envMissing: 'missing from the shell, export it in ~/.zshenv',
+  envMissingWindows: "missing from the shell, add it to your Windows account's environment variables, then restart Orca",
+  providerShellUnsupported: "Providers need PowerShell on Windows: pick it as the terminal shell in Orca's settings.",
 
   tabProviders: 'Providers',
   newProfileFor: (label) => `New ${label} profile`,

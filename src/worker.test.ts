@@ -359,6 +359,22 @@ test('the hook refuses a hand-edited store that puts a provider on a non-Claude 
   await worker.deactivate()
 })
 
+test('the hook refuses a provider profile when the Windows shell set in Orca is not PowerShell', async () => {
+  const state: { fired?: Promise<unknown> } = {}
+  const { deps } = fakeDeps()
+  const host = launchingHost(state, () => worker.hooks.fire('agent.launch.before', launch(CLAUDE_CMD)), { [STORE_KEY]: SAMPLE_STORE })
+  const worker = await mountV2(host, { ...deps, launchShell: () => null })
+  assert.deepEqual(await worker.request('profile.launch', { profileId: DEEPSEEK.id }), {
+    ok: false,
+    reason: COPY.providerShellUnsupported
+  })
+  assert.deepEqual(await state.fired, { kind: 'deny', reason: COPY.providerShellUnsupported })
+  // Un profil sans fournisseur ne touche pas au shell : il part normalement.
+  assert.deepEqual(await worker.request('profile.launch', { profileId: OPUS.id }), { ok: true })
+  await state.fired
+  await worker.deactivate()
+})
+
 test('the hook refuses a hand-edited store that routes a Claude profile without a model', async () => {
   const state: { fired?: Promise<unknown> } = {}
   const store: Store = { ...SAMPLE_STORE, profiles: [{ ...DEEPSEEK, model: null }] }
@@ -651,7 +667,8 @@ test('an older, slower probe never overwrites a newer refresh', async () => {
       await pause(calls === 1 ? 200 : 10)
       return new Set(found)
     },
-    now: () => Date.now()
+    now: () => Date.now(),
+    launchShell: () => 'posix'
   }
   const worker = await mountV2(mockHost(), deps)
   settings.disabled = ['grok']

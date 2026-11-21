@@ -76,7 +76,8 @@ export function fakeDeps(agents: readonly string[] = ENABLED.agents) {
       state.finds++
       return new Set(state.agents.flatMap((id) => [...agentById(id)!.commands, ...agentById(id)!.requiredCommands]))
     },
-    now: () => state.now
+    now: () => state.now,
+    launchShell: () => 'posix'
   }
   return { deps, state }
 }

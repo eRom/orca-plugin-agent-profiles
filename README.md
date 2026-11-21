@@ -2,7 +2,7 @@
 
 **Launch Orca's coding agents with saved profiles: model, effort, extra arguments and, for Claude, a third-party provider such as Ollama or OpenRouter.**
 
-![Orca](https://img.shields.io/badge/Orca-%E2%89%A51.4.248-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Orca](https://img.shields.io/badge/Orca-%E2%89%A51.4.259-blue) ![macOS and Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 [Install](#install) · [Features](#features) · [Routing](#how-routing-works) · [Access](#what-it-can-access) · [Limits](#requirements-and-limits) · [Development](#development)
 
@@ -51,6 +51,8 @@ Other agents are never modified outside the panel.
 
 A token written as `$NAME` (for example `$OPENROUTER_API_KEY`) is never read by the plugin. It becomes an assignment at the head of the command, expanded by the terminal's shell, which reads your `~/.zshenv`: the key never passes through the plugin or Orca. If the variable is missing, the shell refuses to start Claude and names it.
 
+On Windows, the assignment is written for PowerShell (`$env:NAME`), and the variable must exist in your Windows account's environment variables; restart Orca after adding one.
+
 A literal token is accepted but stored in clear in the plugin's storage, and passed only through the launch environment, never on the command line. The form warns about it.
 
 ## What it can access
@@ -66,14 +68,15 @@ Orca labels this plugin **Full access**: it runs its own worker process on your 
 
 Beyond Orca's API, the worker:
 
-- **reads** Orca's settings database (`~/Library/Application Support/orca/profiles/<id>/profile-state.db`) to know which agents you enabled. It never writes to it.
-- **runs one command**: a single `zsh -ilc` that looks up each known agent's executable with your real `PATH`.
+- **reads** Orca's settings database (`profiles/<id>/profile-state.db` in `~/Library/Application Support/orca` on macOS, `%APPDATA%\orca` on Windows) to know which agents you enabled and, on Windows, which shell Orca's terminals use. It never writes to it.
+- **runs one command on macOS**: a single `zsh -ilc` that looks up each known agent's executable with your real `PATH`. On Windows it runs nothing: it searches the `PATH` Orca gives it, with the extensions of `PATHEXT`.
 - **makes no network request** and collects no data.
 
 ## Requirements and limits
 
-- **macOS only**: the plugin reads Orca's settings from `~/Library/Application Support/orca`.
-- **Orca 1.4.248 or later**, and `zsh` as the login shell for agent detection. If the login shell fails or takes more than 15 seconds, the plugin falls back to the worker's `PATH`, which is less complete.
+- **macOS and Windows**. Linux is not tested.
+- **Orca 1.4.259 or later**. On macOS, `zsh` as the login shell for agent detection: if it fails or takes more than 15 seconds, the plugin falls back to the worker's `PATH`, which is less complete.
+- **On Windows, providers need PowerShell** as the terminal shell in Orca's settings (the default). With Command Prompt, profiles still set the model, effort and arguments, but a profile with a provider is refused with a message.
 - **No plugin API lists Orca's enabled agents**, so the plugin reads Orca's internal settings format. If that format changes, it falls back to showing every installed agent instead of failing.
 - **Toggling an agent** in Settings > Agents is not picked up live: press ⟳ in the panel.
 - **The agent table** (commands, model and effort flags) is bundled in `src/agents.ts` and must be updated when Orca adds or changes an agent.

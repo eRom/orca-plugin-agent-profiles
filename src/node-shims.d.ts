@@ -18,6 +18,8 @@ declare module 'node:os' {
 
 declare module 'node:path' {
   export function join(...parts: string[]): string
+  export const posix: { join(...parts: string[]): string }
+  export const win32: { join(...parts: string[]): string }
 }
 
 declare module 'node:url' {
@@ -50,4 +52,4 @@ declare module 'node:child_process' {
   ): ChildProcess
 }
 
-declare const process: { env: Record<string, string | undefined> }
+declare const process: { env: Record<string, string | undefined>; platform: string }
