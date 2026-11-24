@@ -4,9 +4,11 @@ import { agentById } from './agents'
 import { MESSAGES } from './copy'
 import type { InventoryDeps } from './inventory'
 import { splitWords } from './launch'
-import { EMPTY_STORE, STORE_KEY, type Profile, type Store } from './store'
+import { EMPTY_STORE, MAX_FAVORITES, STORE_KEY, type Profile, type Store } from './store'
 import { AGY_CMD, ARGON, CLAUDE_CMD, CODEX_CMD, DEEPSEEK, fakeDeps, HARNESS, LUNA, OLLAMA, OPUS, SAMPLE_STORE } from './test-fixtures'
-import { activateWith, LOCALE_KEY } from './worker'
+import { activateWith, favoriteCommandId, favoriteItemId, LOCALE_KEY } from './worker'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const COPY = MESSAGES.fr
 
@@ -924,12 +926,31 @@ const visibleTexts = (host: ReturnType<typeof mockHost>): string[] =>
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, item]) => item.text ?? '')
 
-test('at startup, the stored favorites fill the status bar in order and the empty slots are hidden', async () => {
+test('every favorite slot has its status bar item and its command in the manifest', () => {
+  const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../orca-plugin.json', import.meta.url)), 'utf8')) as {
+    contributes: { commands: { id: string }[]; statusBarItems: { id: string; command?: string }[] }
+  }
+  const commands = manifest.contributes.commands.map((command) => command.id)
+  for (let slot = 1; slot <= MAX_FAVORITES; slot++) {
+    const item = manifest.contributes.statusBarItems.find((candidate) => candidate.id === favoriteItemId(slot))
+    assert.equal(item?.command, favoriteCommandId(slot), `slot ${slot}`)
+    assert.ok(commands.includes(favoriteCommandId(slot)), `command of slot ${slot}`)
+  }
+})
+
+test('at startup, without any panel, the stored favorites fill the status bar in order and the empty slots are hidden', async () => {
   const host = mockHost({ storage: { [STORE_KEY]: { ...SAMPLE_STORE, favoriteIds: [LUNA.id, OPUS.id] } } })
-  const worker = await mountV2(host)
+  // Orca redémarré, panneau jamais ouvert : seule l'activation peut remettre les favoris (pas de `locale.set`).
+  const worker = await mountBare(host)
   await pause()
   const shown = statusBar(host)
-  assert.deepEqual(shown['favorite-1'], { id: 'favorite-1', text: 'Luna', icon: 'star', tooltip: COPY.favoriteTooltip('Luna', 'Codex'), visible: true })
+  assert.deepEqual(shown['favorite-1'], {
+    id: 'favorite-1',
+    text: 'Luna',
+    icon: 'star',
+    tooltip: MESSAGES.en.favoriteTooltip('Luna', 'Codex'),
+    visible: true
+  })
   assert.equal(shown['favorite-2']?.text, 'Opus')
   for (const slot of [3, 4, 5]) assert.equal(shown[`favorite-${slot}`]?.visible, false, `slot ${slot}`)
   assert.deepEqual(host.refusals, [])
@@ -1012,5 +1033,30 @@ test('a status bar Orca refuses is logged and does not break pinning', async () 
   assert.equal(result.ok, true)
   await pause()
   assert.ok(worker.logs.includes('status bar update failed item=favorite-1 code=unavailable'))
+  await worker.deactivate()
+})
+
+test('a slot Orca refused once is sent again on the next sync', async () => {
+  let refuseNext = true
+  const host = mockHost({
+    storage: { [STORE_KEY]: SAMPLE_STORE },
+    results: {
+      'statusBar.update': (params: unknown) => {
+        if (refuseNext && (params as StatusUpdate).visible) {
+          refuseNext = false
+          throw hostError('unavailable', 'busy')
+        }
+        return { ok: true }
+      }
+    }
+  })
+  const worker = await mountV2(host)
+  await worker.request('profile.favorite', { profileId: OPUS.id, favorite: true })
+  await pause()
+  // Le refus a laissé l'emplacement 1 masqué ; la prochaine écriture du store doit le renvoyer.
+  await worker.request('profile.favorite', { profileId: LUNA.id, favorite: true })
+  await pause()
+  const accepted = (host.callsOf('statusBar.update') as StatusUpdate[]).filter((u) => u.id === 'favorite-1' && u.text === 'Opus')
+  assert.equal(accepted.length, 2, 'refused once, then sent again')
   await worker.deactivate()
 })

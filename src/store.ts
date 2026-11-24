@@ -84,9 +84,9 @@ export function parseStore(value: unknown): Store | null {
   if (!Array.isArray(value.providers) || !value.providers.every(isProvider)) return null
   if (!Array.isArray(value.profiles) || !value.profiles.every(isProfile)) return null
   if (value.lastProfileId !== null && !isString(value.lastProfileId)) return null
-  // Champ ajouté sans changer de version : un store d'avant les favoris garde tous ses profils.
-  const favorites = value.favoriteIds === undefined ? [] : value.favoriteIds
-  if (!Array.isArray(favorites) || !favorites.every(isString)) return null
+  // Champ ajouté sans changer de version : un store d'avant les favoris garde tous ses profils. Une liste mal formée
+  // (édition à la main) se lit vide plutôt que de faire rejeter tout le store, et les doublons tombent.
+  const favorites = Array.isArray(value.favoriteIds) ? [...new Set(value.favoriteIds.filter(isString))] : []
   return {
     version: 2,
     providers: value.providers,
@@ -104,9 +104,10 @@ export function favoriteProfiles(store: Store): Profile[] {
 /** Ajoute en fin de liste ou retire ; refuse un ajout au-delà des emplacements. Retirer un non-favori ne change rien. */
 export function setFavorite(store: Store, profileId: string, favorite: boolean, m: Messages): { store: Store } | { error: string } {
   if (!store.profiles.some((p) => p.id === profileId)) return { error: m.profileNotFound }
+  // Même objet rendu quand rien ne change : le worker n'écrit alors rien.
+  if (store.favoriteIds.includes(profileId) === favorite) return { store }
   const others = store.favoriteIds.filter((id) => id !== profileId)
   if (!favorite) return { store: { ...store, favoriteIds: others } }
-  if (store.favoriteIds.includes(profileId)) return { store }
   if (favoriteProfiles(store).length >= MAX_FAVORITES) return { error: m.favoritesFull(MAX_FAVORITES) }
   return { store: { ...store, favoriteIds: [...others, profileId] } }
 }

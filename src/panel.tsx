@@ -115,6 +115,7 @@ async function refreshInventory(): Promise<void> {
 function applyStore(next: Store): void {
   set(store, next)
   set(launchFailure, null)
+  set(favoriteFailure, null)
 }
 
 async function runLaunch(request: Promise<{ ok: true } | { ok: false; reason: string }>): Promise<void> {

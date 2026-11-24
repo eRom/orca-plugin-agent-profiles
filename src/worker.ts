@@ -187,10 +187,14 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
           await orca.host.call('statusBar.update', item)
           shownItems.set(item.id, key)
         } catch (error) {
+          // L'emplacement reste hors du cache : la synchronisation suivante le renvoie.
+          shownItems.delete(item.id)
           orca.log(`status bar update failed item=${item.id} code=${codeOf(error)}`)
         }
       }
     })
+    // Un rejet inattendu ne doit pas bloquer les synchronisations suivantes.
+    statusSync = statusSync.catch(() => undefined)
     return statusSync
   }
 

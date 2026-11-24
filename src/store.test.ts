@@ -107,7 +107,17 @@ test('a store written before favorites keeps every profile and reads no favorite
   assert.deepEqual(parsed?.providers, SAMPLE_STORE.providers)
   assert.equal(parsed?.lastProfileId, LUNA.id)
   assert.deepEqual(parsed?.favoriteIds, [])
-  assert.equal(parseStore({ ...SAMPLE_STORE, favoriteIds: [1] }), null)
+})
+
+test('a malformed favorites list reads as empty and never costs the profiles', () => {
+  assert.deepEqual(parseStore({ ...SAMPLE_STORE, favoriteIds: 'nope' })?.profiles, SAMPLE_STORE.profiles)
+  assert.deepEqual(parseStore({ ...SAMPLE_STORE, favoriteIds: 'nope' })?.favoriteIds, [])
+  assert.deepEqual(parseStore({ ...SAMPLE_STORE, favoriteIds: [1, LUNA.id, LUNA.id] })?.favoriteIds, [LUNA.id])
+})
+
+test('unpinning a profile that is not a favorite returns the same store', () => {
+  const unchanged = setFavorite(SAMPLE_STORE, LUNA.id, false, COPY)
+  assert.ok('store' in unchanged && unchanged.store === SAMPLE_STORE)
 })
 
 test('favorites keep their pinning order, refuse a sixth and drop a deleted profile', () => {
