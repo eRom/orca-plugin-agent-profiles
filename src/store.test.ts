@@ -1,8 +1,11 @@
 import { assert, test } from 'orca/testing'
 import { MESSAGES } from './copy'
 import {
+  favoriteProfiles,
   formatEnvLines,
   isEnvReference,
+  MAX_FAVORITES,
+  setFavorite,
   parseEnvLines as parseEnvLinesIn,
   parseStore,
   removeProfile,
@@ -95,6 +98,40 @@ test('a provider in use cannot be removed, an unused one can', () => {
 test('removing the last launched profile clears lastProfileId', () => {
   const store = { ...SAMPLE_STORE, lastProfileId: 'deepseek-flash' }
   assert.equal(removeProfile(store, 'deepseek-flash').lastProfileId, null)
+})
+
+test('a store written before favorites keeps every profile and reads no favorite', () => {
+  const { favoriteIds: _, ...legacy } = { ...SAMPLE_STORE, lastProfileId: LUNA.id }
+  const parsed = parseStore(JSON.parse(JSON.stringify(legacy)))
+  assert.deepEqual(parsed?.profiles, SAMPLE_STORE.profiles)
+  assert.deepEqual(parsed?.providers, SAMPLE_STORE.providers)
+  assert.equal(parsed?.lastProfileId, LUNA.id)
+  assert.deepEqual(parsed?.favoriteIds, [])
+  assert.equal(parseStore({ ...SAMPLE_STORE, favoriteIds: [1] }), null)
+})
+
+test('favorites keep their pinning order, refuse a sixth and drop a deleted profile', () => {
+  let store: Store = SAMPLE_STORE
+  for (const id of [LUNA.id, OPUS.id, ARGON.id, DEEPSEEK.id, HARNESS.id]) {
+    const next = setFavorite(store, id, true, COPY)
+    assert.ok('store' in next)
+    store = next.store
+  }
+  assert.deepEqual(favoriteProfiles(store).map((p) => p.id), [LUNA.id, OPUS.id, ARGON.id, DEEPSEEK.id, HARNESS.id])
+  const sixth = { ...OPUS, id: 'sixth', name: 'Sixth' }
+  assert.deepEqual(setFavorite({ ...store, profiles: [...store.profiles, sixth] }, 'sixth', true, COPY), { error: COPY.favoritesFull(MAX_FAVORITES) })
+  // Re-épingler un favori ne le déplace pas ; le retirer libère sa place.
+  const again = setFavorite(store, OPUS.id, true, COPY)
+  assert.ok('store' in again && again.store.favoriteIds.join() === store.favoriteIds.join())
+  const unpinned = setFavorite(store, OPUS.id, false, COPY)
+  assert.ok('store' in unpinned && !unpinned.store.favoriteIds.includes(OPUS.id))
+  assert.deepEqual(removeProfile(store, ARGON.id).favoriteIds, [LUNA.id, OPUS.id, DEEPSEEK.id, HARNESS.id])
+  assert.deepEqual(setFavorite(store, 'gone', true, COPY), { error: COPY.profileNotFound })
+})
+
+test('a favorite id without its profile takes no slot', () => {
+  const store: Store = { ...SAMPLE_STORE, favoriteIds: ['ghost', LUNA.id] }
+  assert.deepEqual(favoriteProfiles(store).map((p) => p.id), [LUNA.id])
 })
 
 test('only a whole $NAME value is an environment reference', () => {

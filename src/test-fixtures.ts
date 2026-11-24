@@ -55,7 +55,8 @@ export const SAMPLE_STORE: Store = {
   version: 2,
   providers: [OLLAMA, OPENROUTER],
   profiles: [OPUS, DEEPSEEK, ARGON, LUNA, HARNESS],
-  lastProfileId: null
+  lastProfileId: null,
+  favoriteIds: []
 }
 
 export const ENABLED: Inventory = {

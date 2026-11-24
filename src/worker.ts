@@ -10,10 +10,13 @@ import { applyProfile, dialectFor, findProfileByModel, readFlag, supportsProvide
 import type { DeleteResult, LaunchResult, SaveResult } from './protocol'
 import {
   EMPTY_STORE,
+  favoriteProfiles,
+  MAX_FAVORITES,
   newId,
   parseStore,
   removeProfile,
   removeProvider,
+  setFavorite,
   STORE_KEY,
   upsertProfile,
   upsertProvider,
@@ -33,7 +36,13 @@ const INVENTORY_TTL_MS = 10_000
 /** Clé de stockage de la dernière langue annoncée par un panneau : distincte de celle du store, qui ne change pas de forme. */
 export const LOCALE_KEY = 'ui.locale'
 
-type Source = 'panel' | 'relaunch'
+type Source = 'panel' | 'relaunch' | 'favorite'
+
+/** Id de l'emplacement `slot` (1 à `MAX_FAVORITES`) dans `contributes.statusBarItems`, et de sa commande. */
+export const favoriteItemId = (slot: number): string => `favorite-${slot}`
+export const favoriteCommandId = (slot: number): string => `agentProfiles.favorite${slot}`
+
+type StatusItem = { id: string; text?: string; icon?: 'star'; tooltip?: string; visible: boolean }
 type Pending = { profileId: string; agentId: string; source: Source; at: number }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -66,6 +75,9 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   /** Valeur présente dans le stockage, pour n'écrire que lorsqu'elle change. */
   let storedLocale: Locale | null = null
   const m = (): Messages => MESSAGES[locale]
+  /** Dernier état envoyé à chaque emplacement de la barre d'état, pour n'appeler l'hôte que sur un changement. */
+  const shownItems = new Map<string, string>()
+  let statusSync: Promise<void> = Promise.resolve()
 
   /** Lit le store ; absent, il est créé vide ; illisible, il est copié de côté avant d'être remplacé. */
   async function load(): Promise<void> {
@@ -144,7 +156,42 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     await orca.storage.set(STORE_KEY, next)
     store = next
     orca.panels.post('store.changed', next)
+    syncStatusBar()
     return next
+  }
+
+  /** État voulu des emplacements : un favori par emplacement, dans l'ordre d'ajout, les autres masqués. */
+  function statusItems(): StatusItem[] {
+    const favorites = favoriteProfiles(store)
+    return Array.from({ length: MAX_FAVORITES }, (_, index) => {
+      const id = favoriteItemId(index + 1)
+      const profile = favorites[index]
+      if (!profile) return { id, visible: false }
+      const label = agentById(profile.agentId)?.label ?? profile.agentId
+      // Bornes du schéma d'Orca : 64 caractères de texte, 256 d'infobulle.
+      return { id, text: profile.name.slice(0, 64), icon: 'star', tooltip: m().favoriteTooltip(profile.name, label).slice(0, 256), visible: true }
+    })
+  }
+
+  /**
+   * Pousse vers Orca les emplacements qui ont changé, un appel à la fois et dans l'ordre des écritures.
+   * Best effort : hors app desktop, ou sur un Orca sans barre d'état, le reste du plugin fonctionne.
+   */
+  function syncStatusBar(): Promise<void> {
+    const wanted = statusItems()
+    statusSync = statusSync.then(async () => {
+      for (const item of wanted) {
+        const key = JSON.stringify(item)
+        if (shownItems.get(item.id) === key) continue
+        try {
+          await orca.host.call('statusBar.update', item)
+          shownItems.set(item.id, key)
+        } catch (error) {
+          orca.log(`status bar update failed item=${item.id} code=${codeOf(error)}`)
+        }
+      }
+    })
+    return statusSync
   }
 
   const save = <T extends Profile | Provider>(
@@ -222,6 +269,8 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
       await orca.storage.set(LOCALE_KEY, locale)
       storedLocale = locale
     }
+    // Les infobulles de la barre d'état suivent la langue annoncée.
+    syncStatusBar()
     return { ok: true as const }
   })
 
@@ -266,6 +315,15 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     })
   )
 
+  orca.panels.handle('profile.favorite', ({ profileId, favorite }) =>
+    serialize(async (): Promise<DeleteResult> => {
+      await ready
+      const changed = setFavorite(store, profileId, favorite, m())
+      if ('error' in changed) return { ok: false, error: changed.error }
+      return { ok: true, store: changed.store === store ? store : await commit(changed.store) }
+    })
+  )
+
   orca.panels.handle('profile.launch', ({ profileId }) => launchProfile(profileId, 'panel'))
   orca.panels.handle('agents.list', () => listInventory())
   orca.panels.handle('agents.refresh', () => probe())
@@ -277,17 +335,31 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
     ]
   }))
 
-  orca.commands.register('agentProfiles.relaunchLast', async () => {
-    await ready
-    const profile = store.profiles.find((p) => p.id === store.lastProfileId)
-    if (!profile) return m().noLastProfile
+  /** Lancement par une commande (raccourci, palette, barre d'état) : le message rendu s'affiche dans Orca. */
+  async function launchFromCommand(profile: Profile, source: Source): Promise<string> {
     const spec = agentById(profile.agentId)
     // Les réglages d'Orca sont relus à chaque relance (synchrone, sans shell) ; une sonde n'est attendue que si aucune n'a abouti.
     const enabled = lastFound ? enabledAgents(lastFound, deps.readSettings()) : (await listInventory()).agents
     if (spec && !enabled.includes(spec.id)) return m().agentDisabled(spec.label)
-    const result = await launchProfile(profile.id, 'relaunch')
+    const result = await launchProfile(profile.id, source)
     return result.ok ? m().launched(profile.name) : result.reason
+  }
+
+  orca.commands.register('agentProfiles.relaunchLast', async () => {
+    await ready
+    const profile = store.profiles.find((p) => p.id === store.lastProfileId)
+    if (!profile) return m().noLastProfile
+    return launchFromCommand(profile, 'relaunch')
   })
+
+  for (let slot = 1; slot <= MAX_FAVORITES; slot++) {
+    orca.commands.register(favoriteCommandId(slot), async () => {
+      await ready
+      const profile = favoriteProfiles(store)[slot - 1]
+      if (!profile) return m().noFavoriteInSlot(slot)
+      return launchFromCommand(profile, 'favorite')
+    })
+  }
 
   orca.hooks.on('agent.launch.before', async (event, next) => {
     await ready
@@ -337,4 +409,6 @@ export async function activateWith(orca: OrcaWorkerApi, deps: InventoryDeps): Pr
   })
 
   await ready
+  // Les éléments de la barre d'état repartent masqués à chaque démarrage d'Orca : on y remet les favoris du store.
+  void syncStatusBar()
 }

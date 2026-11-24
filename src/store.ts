@@ -30,13 +30,23 @@ export type Profile = {
   extraArgs: string[]
 }
 
-export type Store = { version: 2; providers: Provider[]; profiles: Profile[]; lastProfileId: string | null }
+export type Store = {
+  version: 2
+  providers: Provider[]
+  profiles: Profile[]
+  lastProfileId: string | null
+  /** Profils épinglés dans la barre d'état, dans l'ordre d'ajout ; absent d'un store antérieur aux favoris, lu vide. */
+  favoriteIds: string[]
+}
+
+/** Emplacements de la barre d'état déclarés dans le manifeste (`favorite-1` à `favorite-5`). */
+export const MAX_FAVORITES = 5
 
 export type FieldErrors = Partial<
   Record<'name' | 'agentId' | 'model' | 'effort' | 'providerId' | 'baseUrl' | 'token' | 'extraEnv', string>
 >
 
-export const EMPTY_STORE: Store = { version: 2, providers: [], profiles: [], lastProfileId: null }
+export const EMPTY_STORE: Store = { version: 2, providers: [], profiles: [], lastProfileId: null, favoriteIds: [] }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -74,12 +84,31 @@ export function parseStore(value: unknown): Store | null {
   if (!Array.isArray(value.providers) || !value.providers.every(isProvider)) return null
   if (!Array.isArray(value.profiles) || !value.profiles.every(isProfile)) return null
   if (value.lastProfileId !== null && !isString(value.lastProfileId)) return null
+  // Champ ajouté sans changer de version : un store d'avant les favoris garde tous ses profils.
+  const favorites = value.favoriteIds === undefined ? [] : value.favoriteIds
+  if (!Array.isArray(favorites) || !favorites.every(isString)) return null
   return {
     version: 2,
     providers: value.providers,
     profiles: value.profiles,
-    lastProfileId: value.lastProfileId
+    lastProfileId: value.lastProfileId,
+    favoriteIds: favorites
   }
+}
+
+/** Profils favoris dans l'ordre de la barre d'état ; un id sans profil (store édité à la main) est ignoré. */
+export function favoriteProfiles(store: Store): Profile[] {
+  return store.favoriteIds.flatMap((id) => store.profiles.find((p) => p.id === id) ?? []).slice(0, MAX_FAVORITES)
+}
+
+/** Ajoute en fin de liste ou retire ; refuse un ajout au-delà des emplacements. Retirer un non-favori ne change rien. */
+export function setFavorite(store: Store, profileId: string, favorite: boolean, m: Messages): { store: Store } | { error: string } {
+  if (!store.profiles.some((p) => p.id === profileId)) return { error: m.profileNotFound }
+  const others = store.favoriteIds.filter((id) => id !== profileId)
+  if (!favorite) return { store: { ...store, favoriteIds: others } }
+  if (store.favoriteIds.includes(profileId)) return { store }
+  if (favoriteProfiles(store).length >= MAX_FAVORITES) return { error: m.favoritesFull(MAX_FAVORITES) }
+  return { store: { ...store, favoriteIds: [...others, profileId] } }
 }
 
 export function newId(prefix: 'profile' | 'provider'): string {
@@ -155,7 +184,8 @@ export function removeProfile(store: Store, profileId: string): Store {
   return {
     ...store,
     profiles: store.profiles.filter((p) => p.id !== profileId),
-    lastProfileId: store.lastProfileId === profileId ? null : store.lastProfileId
+    lastProfileId: store.lastProfileId === profileId ? null : store.lastProfileId,
+    favoriteIds: store.favoriteIds.filter((id) => id !== profileId)
   }
 }
 

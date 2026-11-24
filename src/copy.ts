@@ -32,6 +32,11 @@ export type Messages = {
   agentDisabled: (label: string) => string
   profileProviderMissing: (name: string) => string
   launched: (name: string) => string
+  favoritesFull: (max: number) => string
+  /** Emplacement de la barre d'état sans favori : atteignable seulement par la palette de commandes. */
+  noFavoriteInSlot: (slot: number) => string
+  /** Infobulle d'un favori dans la barre d'état : « Lancer Opus (Claude) ». */
+  favoriteTooltip: (name: string, agentLabel: string) => string
   literalToken: string
   /** Inséré dans `${NOM:?…}` du shell : ni `"`, ni `}`, ni `$`, ni accent grave, ni antislash. */
   envMissing: string
@@ -48,6 +53,8 @@ export type Messages = {
   refreshAgents: string
   launch: (name: string) => string
   edit: (name: string) => string
+  addFavorite: (name: string) => string
+  removeFavorite: (name: string) => string
   lastBadge: string
   unknownProvider: string
   noProfileForAgent: string
@@ -112,6 +119,9 @@ const fr: Messages = {
   agentDisabled: (label) => `${label} est désactivé dans Orca.`,
   profileProviderMissing: (name) => `« ${name} » : fournisseur introuvable.`,
   launched: (name) => `« ${name} » lancé.`,
+  favoritesFull: (max) => `${max} favoris au plus : retire d'abord une étoile.`,
+  noFavoriteInSlot: (slot) => `Aucun favori à l'emplacement ${slot}.`,
+  favoriteTooltip: (name, agentLabel) => `Lancer ${name} (${agentLabel})`,
   literalToken: 'Jeton stocké en clair dans le plugin ; préfère une référence $NOM.',
   envMissing: 'absente du shell, exporte-la dans ~/.zshenv',
   envMissingWindows:
@@ -127,6 +137,8 @@ const fr: Messages = {
   refreshAgents: 'Actualiser les agents',
   launch: (name) => `Lancer ${name}`,
   edit: (name) => `Modifier ${name}`,
+  addFavorite: (name) => `Épingler ${name} dans la barre d'état`,
+  removeFavorite: (name) => `Retirer ${name} de la barre d'état`,
   lastBadge: 'Dernier',
   unknownProvider: 'Fournisseur inconnu',
   noProfileForAgent: 'Aucun profil',
@@ -199,6 +211,9 @@ const en: Messages = {
   agentDisabled: (label) => `${label} is disabled in Orca.`,
   profileProviderMissing: (name) => `"${name}": provider not found.`,
   launched: (name) => `"${name}" launched.`,
+  favoritesFull: (max) => `${max} favorites at most: unstar one first.`,
+  noFavoriteInSlot: (slot) => `No favorite in slot ${slot}.`,
+  favoriteTooltip: (name, agentLabel) => `Launch ${name} (${agentLabel})`,
   literalToken: 'Token stored in plain text in the plugin; prefer a $NAME reference.',
   envMissing: 'missing from the shell, export it in ~/.zshenv',
   envMissingWindows: "missing from the shell, add it to your Windows account's environment variables, then sign out of Windows and back in",
@@ -212,6 +227,8 @@ const en: Messages = {
   refreshAgents: 'Refresh agents',
   launch: (name) => `Launch ${name}`,
   edit: (name) => `Edit ${name}`,
+  addFavorite: (name) => `Pin ${name} to the status bar`,
+  removeFavorite: (name) => `Unpin ${name} from the status bar`,
   lastBadge: 'Last used',
   unknownProvider: 'Unknown provider',
   noProfileForAgent: 'No profiles',

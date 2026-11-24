@@ -20,6 +20,7 @@ type Setup = {
   saveProvider?: (input: { provider: Provider }) => SaveResult
   deleteProvider?: (input: { providerId: string }) => DeleteResult
   deleteProfile?: (input: { profileId: string }) => DeleteResult
+  favorite?: (input: { profileId: string; favorite: boolean }) => DeleteResult
   store?: Store
   storeGet?: () => Store
   inventory?: Inventory
@@ -40,6 +41,7 @@ async function open(setup: Setup = {}) {
   const announcedLocales: string[] = []
   const profileSaves: Profile[] = []
   const providerSaves: Provider[] = []
+  const favorites: { profileId: string; favorite: boolean }[] = []
   const store = setup.store ?? SAMPLE_STORE
   const inventory = setup.inventory ?? ENABLED
   /** Nom de chaque requête reçue par le worker simulé, dans l'ordre d'arrivée. */
@@ -76,12 +78,16 @@ async function open(setup: Setup = {}) {
         return setup.saveProvider ? setup.saveProvider(input) : { ok: true as const, store }
       }),
       'profile.delete': track('profile.delete', setup.deleteProfile ?? (() => ({ ok: true as const, store }))),
+      'profile.favorite': track('profile.favorite', (input: { profileId: string; favorite: boolean }) => {
+        favorites.push(input)
+        return setup.favorite ? setup.favorite(input) : { ok: true as const, store }
+      }),
       'provider.delete': track('provider.delete', setup.deleteProvider ?? (() => ({ ok: true as const, store })))
     },
     results: { 'workspace.readContext': () => state.context }
   })
   const view = await mount(panel, { host, persisted: setup.persisted, theme: setup.theme, locale: setup.locale ?? 'fr-FR' })
-  return { view, state, launches, refreshes, announcedLocales, requestOrder, profileSaves, providerSaves }
+  return { view, state, launches, refreshes, announcedLocales, requestOrder, profileSaves, providerSaves, favorites }
 }
 
 type View = Awaited<ReturnType<typeof open>>['view']
@@ -889,4 +895,38 @@ test('the alphabetical order follows the display language, not French', async ()
   assert.deepEqual(await order('sv-SE'), ['Edit Zed', 'Edit Äpple'])
   assert.deepEqual(await order('en-US'), ['Edit Äpple', 'Edit Zed'])
   assert.deepEqual(await order('fr-FR'), ['Modifier Äpple', 'Modifier Zed'])
+})
+
+test('the star pins a profile, and unpins a favorite, through the worker', async () => {
+  const pinned: Store = { ...SAMPLE_STORE, favoriteIds: [LUNA.id] }
+  const { view, favorites } = await open({ store: pinned, favorite: () => ({ ok: true, store: { ...pinned, favoriteIds: [LUNA.id, OPUS.id] } }) })
+  assert.equal(view.find({ label: COPY.removeFavorite('Luna') })?.props.tone, 'accent')
+  assert.equal(view.find({ label: COPY.addFavorite('Opus') })?.props.tone, 'neutral')
+  await view.press({ label: COPY.addFavorite('Opus') })
+  await view.press({ label: COPY.removeFavorite('Luna') })
+  assert.deepEqual(favorites, [
+    { profileId: OPUS.id, favorite: true },
+    { profileId: LUNA.id, favorite: false }
+  ])
+  // La réponse du worker suffit à redessiner l'étoile, sans attendre `store.changed`.
+  assert.notEqual(view.find({ label: COPY.removeFavorite('Opus') }), null)
+  await expectClean(view)
+})
+
+test('with five favorites, the other stars are disabled and say why, the pinned ones stay pressable', async () => {
+  const extra = ['a', 'b', 'c'].map((id) => ({ ...OPUS, id, name: `Opus ${id}` }))
+  const store: Store = { ...SAMPLE_STORE, profiles: [...SAMPLE_STORE.profiles, ...extra], favoriteIds: [OPUS.id, LUNA.id, 'a', 'b', 'c'] }
+  const { view } = await open({ store })
+  const argon = view.find({ label: COPY.addFavorite('Argon') })
+  assert.equal(argon?.props.disabled, true)
+  assert.equal(argon?.props.tooltip, COPY.favoritesFull(5))
+  assert.equal(view.find({ label: COPY.removeFavorite('Luna') })?.props.disabled, false)
+  await expectClean(view)
+})
+
+test('a favorite refused by the worker shows its reason', async () => {
+  const { view } = await open({ favorite: () => ({ ok: false, error: COPY.favoritesFull(5) }) })
+  await view.press({ label: COPY.addFavorite('Opus') })
+  assert.notEqual(view.find({ text: COPY.favoritesFull(5) }), null)
+  await expectClean(view)
 })

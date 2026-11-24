@@ -16,6 +16,8 @@ declare module 'orca' {
     'provider.save': { input: { provider: Provider }; output: SaveResult }
     'provider.delete': { input: { providerId: string }; output: DeleteResult }
     'profile.launch': { input: { profileId: string }; output: LaunchResult }
+    /** Épingle ou retire un profil de la barre d'état ; refuse au-delà de `MAX_FAVORITES`. */
+    'profile.favorite': { input: { profileId: string; favorite: boolean }; output: DeleteResult }
     'agents.list': { output: Inventory }
     'agents.refresh': { output: Inventory }
     /** Chemins relatifs à la racine du plugin : `avatars/…` puis `agent-icons/…`. */

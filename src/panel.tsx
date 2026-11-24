@@ -30,7 +30,7 @@ import { themedIcon } from './icons'
 import type { Inventory } from './inventory'
 import { openProfileForm, profileForm, renderProfileForm } from './profile-form'
 import { openProviderForm, providerForm, renderProviderForm } from './provider-form'
-import type { Profile, Provider, Store } from './store'
+import { favoriteProfiles, MAX_FAVORITES, type Profile, type Provider, type Store } from './store'
 
 type WorkspaceContext = { workspaceId?: string } | null
 
@@ -50,6 +50,8 @@ const workspaceId = atom<string | null | undefined>(undefined)
 const refreshing = atom(false)
 /** Raison du dernier lancement refusé ; reste affichée jusqu'au prochain lancement ou changement du store. */
 const launchFailure = atom<string | null>(null)
+/** Raison du dernier changement de favori refusé (plus de place, profil disparu). */
+const favoriteFailure = atom<string | null>(null)
 /** Agents dont le groupe est replié ; gardé d'une session d'Orca à l'autre, le même pour tous les workspaces. */
 const collapsedAgents = atom<string[]>('collapsedAgents', [], { persist: 'plugin' })
 
@@ -127,6 +129,18 @@ async function runLaunch(request: Promise<{ ok: true } | { ok: false; reason: st
 
 const launch = (profile: Profile): Promise<void> => runLaunch(plugin.request('profile.launch', { profileId: profile.id }))
 
+/** Le worker renvoie le store et le diffuse par `store.changed` ; seul un refus s'affiche ici. */
+async function toggleFavorite(profile: Profile, favorite: boolean): Promise<void> {
+  set(favoriteFailure, null)
+  try {
+    const result = await plugin.request('profile.favorite', { profileId: profile.id, favorite })
+    if (result.ok) applyStore(result.store)
+    else set(favoriteFailure, result.error)
+  } catch (error) {
+    set(favoriteFailure, messageOf(error))
+  }
+}
+
 /** Tourne une fois avant le premier rendu ; ce qui est poussé dans `subscriptions` s'arrête avec le panneau. */
 export function setup(ctx: PanelContext): void {
   ctx.subscriptions.push(plugin.on('store.changed', applyStore))
@@ -189,6 +203,9 @@ function renderProfileSummary(current: Store, profile: Profile) {
 
 function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, canLaunch: boolean) {
   const m = copy()
+  const favorite = current.favoriteIds.includes(profile.id)
+  // Plus d'emplacement libre : l'étoile d'un non-favori se grise, son infobulle dit pourquoi.
+  const full = !favorite && favoriteProfiles(current).length >= MAX_FAVORITES
   return (
     <Row key={profile.id} justify="between" align="center" gap="sm">
       {/* Le texte prend la place libre et se tronque (minWidth 0) ; les actions gardent leur taille,
@@ -212,6 +229,16 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
         </Box>
       </Box>
       <Box key={`actions-${profile.id}`} direction="row" gap="xs" shrink={false}>
+        <IconButton
+          icon="star"
+          label={favorite ? m.removeFavorite(profile.name) : m.addFavorite(profile.name)}
+          tooltip={full ? m.favoritesFull(MAX_FAVORITES) : undefined}
+          variant="ghost"
+          tone={favorite ? 'accent' : 'neutral'}
+          size="sm"
+          disabled={full}
+          onPress={() => toggleFavorite(profile, !favorite)}
+        />
         <IconButton
           icon="play"
           label={m.launch(profile.name)}
@@ -378,6 +405,7 @@ export default function Panel() {
   const agents = read(inventory)
   const detectFailure = read(inventoryError)
   const failure = read(launchFailure)
+  const favoriteRefusal = read(favoriteFailure)
   return (
     <Stack gap="md">
       <Row justify="end">
@@ -397,6 +425,7 @@ export default function Panel() {
           {failure}
         </Callout>
       )}
+      {favoriteRefusal === null ? null : <Callout tone="warning">{favoriteRefusal}</Callout>}
       {detectFailure === null ? null : (
         <Stack gap="sm">
           <Callout tone="danger" title={m.detectFailedTitle}>

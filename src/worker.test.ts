@@ -908,3 +908,109 @@ test('an unreadable stored language falls back to English and is replaced on the
   assert.equal(host.data().storage[LOCALE_KEY], 'en')
   await worker.deactivate()
 })
+
+type StatusUpdate = { id: string; text?: string; icon?: string; tooltip?: string; visible?: boolean }
+
+/** Dernier état poussé vers chaque emplacement de la barre d'état, comme Orca l'afficherait. */
+function statusBar(host: ReturnType<typeof mockHost>): Record<string, StatusUpdate> {
+  const shown: Record<string, StatusUpdate> = {}
+  for (const update of host.callsOf('statusBar.update') as StatusUpdate[]) shown[update.id] = { ...shown[update.id], ...update }
+  return shown
+}
+
+const visibleTexts = (host: ReturnType<typeof mockHost>): string[] =>
+  Object.entries(statusBar(host))
+    .filter(([, item]) => item.visible)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, item]) => item.text ?? '')
+
+test('at startup, the stored favorites fill the status bar in order and the empty slots are hidden', async () => {
+  const host = mockHost({ storage: { [STORE_KEY]: { ...SAMPLE_STORE, favoriteIds: [LUNA.id, OPUS.id] } } })
+  const worker = await mountV2(host)
+  await pause()
+  const shown = statusBar(host)
+  assert.deepEqual(shown['favorite-1'], { id: 'favorite-1', text: 'Luna', icon: 'star', tooltip: COPY.favoriteTooltip('Luna', 'Codex'), visible: true })
+  assert.equal(shown['favorite-2']?.text, 'Opus')
+  for (const slot of [3, 4, 5]) assert.equal(shown[`favorite-${slot}`]?.visible, false, `slot ${slot}`)
+  assert.deepEqual(host.refusals, [])
+  await worker.deactivate()
+})
+
+test('pinning, unpinning and deleting a favorite update the status bar', async () => {
+  const host = mockHost({ storage: { [STORE_KEY]: SAMPLE_STORE } })
+  const worker = await mountV2(host)
+  await worker.request('profile.favorite', { profileId: OPUS.id, favorite: true })
+  await worker.request('profile.favorite', { profileId: LUNA.id, favorite: true })
+  await pause()
+  assert.deepEqual(visibleTexts(host), ['Opus', 'Luna'])
+  assert.deepEqual((host.data().storage[STORE_KEY] as Store).favoriteIds, [OPUS.id, LUNA.id])
+
+  await worker.request('profile.favorite', { profileId: OPUS.id, favorite: false })
+  await pause()
+  assert.deepEqual(visibleTexts(host), ['Luna'])
+
+  await worker.request('profile.delete', { profileId: LUNA.id })
+  await pause()
+  assert.deepEqual(visibleTexts(host), [])
+  await worker.deactivate()
+})
+
+test('a sixth favorite is refused and leaves the store unchanged', async () => {
+  const extra = ['a', 'b'].map((id) => ({ ...OPUS, id, name: `Opus ${id}` }))
+  const full: Store = { ...SAMPLE_STORE, profiles: [...SAMPLE_STORE.profiles, ...extra], favoriteIds: [OPUS.id, LUNA.id, ARGON.id, 'a', 'b'] }
+  const host = mockHost({ storage: { [STORE_KEY]: full } })
+  const worker = await mountV2(host)
+  assert.deepEqual(await worker.request('profile.favorite', { profileId: HARNESS.id, favorite: true }), { ok: false, error: COPY.favoritesFull(5) })
+  assert.deepEqual(host.data().storage[STORE_KEY], full)
+  await worker.deactivate()
+})
+
+test('pressing a status bar favorite launches its profile', async () => {
+  const state: { fired?: Promise<unknown> } = {}
+  const host = launchingHost(state, () => worker.hooks.fire('agent.launch.before', launch(CODEX_CMD, 'codex')), {
+    [STORE_KEY]: { ...SAMPLE_STORE, favoriteIds: [OPUS.id, LUNA.id] }
+  })
+  const worker = await mountV2(host)
+  assert.equal(await worker.command('agentProfiles.favorite2'), COPY.launched('Luna'))
+  await state.fired
+  assert.deepEqual(host.callsOf('agent.launch'), [{ workspaceId: 'w1', agent: 'codex' }])
+  assert.ok(worker.logs.includes('profile=luna agent=codex via=favorite'))
+  assert.equal(host.callsOf('terminal.focus').length, 1)
+  await worker.deactivate()
+})
+
+test('an empty favorite slot or a disabled agent launches nothing and says why', async () => {
+  const host = mockHost({
+    storage: { [STORE_KEY]: { ...SAMPLE_STORE, favoriteIds: [ARGON.id] } },
+    results: { 'workspace.readContext': CONTEXT, 'agent.launch': { terminalId: 't1' } }
+  })
+  const worker = await mountV2(host, fakeDeps(['claude']).deps)
+  assert.equal(await worker.command('agentProfiles.favorite3'), COPY.noFavoriteInSlot(3))
+  assert.equal(await worker.command('agentProfiles.favorite1'), COPY.agentDisabled('Antigravity'))
+  assert.equal(host.callsOf('agent.launch').length, 0)
+  await worker.deactivate()
+})
+
+test('the status bar tooltips follow the announced language', async () => {
+  const host = mockHost({ storage: { [STORE_KEY]: { ...SAMPLE_STORE, favoriteIds: [LUNA.id] } } })
+  const worker = await mountV2(host, fakeDeps().deps, 'en-US')
+  await pause()
+  assert.equal(statusBar(host)['favorite-1']?.tooltip, MESSAGES.en.favoriteTooltip('Luna', 'Codex'))
+  await worker.request('locale.set', { locale: 'fr-FR' })
+  await pause()
+  assert.equal(statusBar(host)['favorite-1']?.tooltip, MESSAGES.fr.favoriteTooltip('Luna', 'Codex'))
+  await worker.deactivate()
+})
+
+test('a status bar Orca refuses is logged and does not break pinning', async () => {
+  const host = mockHost({
+    storage: { [STORE_KEY]: SAMPLE_STORE },
+    results: { 'statusBar.update': () => { throw hostError('unavailable', 'no desktop') } }
+  })
+  const worker = await mountV2(host)
+  const result = await worker.request('profile.favorite', { profileId: OPUS.id, favorite: true })
+  assert.equal(result.ok, true)
+  await pause()
+  assert.ok(worker.logs.includes('status bar update failed item=favorite-1 code=unavailable'))
+  await worker.deactivate()
+})

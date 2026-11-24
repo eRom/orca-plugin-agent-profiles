@@ -48,7 +48,19 @@
       { "id": "agents", "title": "Agents", "icon": "bot", "entry": "src/panel.tsx", "ui": "components" }
     ],
     "commands": [
-      { "id": "agentProfiles.relaunchLast", "title": "Agents: relaunch last profile", "when": "workspace" }
+      { "id": "agentProfiles.relaunchLast", "title": "Agents: relaunch last profile", "when": "workspace" },
+      { "id": "agentProfiles.favorite1", "title": "Agents: launch favorite 1" },
+      { "id": "agentProfiles.favorite2", "title": "Agents: launch favorite 2" },
+      { "id": "agentProfiles.favorite3", "title": "Agents: launch favorite 3" },
+      { "id": "agentProfiles.favorite4", "title": "Agents: launch favorite 4" },
+      { "id": "agentProfiles.favorite5", "title": "Agents: launch favorite 5" }
+    ],
+    "statusBarItems": [
+      { "id": "favorite-1", "command": "agentProfiles.favorite1" },
+      { "id": "favorite-2", "command": "agentProfiles.favorite2" },
+      { "id": "favorite-3", "command": "agentProfiles.favorite3" },
+      { "id": "favorite-4", "command": "agentProfiles.favorite4" },
+      { "id": "favorite-5", "command": "agentProfiles.favorite5" }
     ],
     "keybindings": [
       { "command": "agentProfiles.relaunchLast", "key": "Mod+Alt+L", "when": "workspace" }
