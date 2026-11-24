@@ -233,7 +233,8 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
           icon="star"
           label={favorite ? m.removeFavorite(profile.name) : m.addFavorite(profile.name)}
           tooltip={full ? m.favoritesFull(MAX_FAVORITES) : undefined}
-          variant="ghost"
+          // Un ton sur un bouton `ghost` ne se voit pas (capture du 24/11) : le favori prend une pastille pleine.
+          variant={favorite ? 'solid' : 'ghost'}
           tone={favorite ? 'accent' : 'neutral'}
           size="sm"
           disabled={full}

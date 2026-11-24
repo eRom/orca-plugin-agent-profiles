@@ -900,8 +900,8 @@ test('the alphabetical order follows the display language, not French', async ()
 test('the star pins a profile, and unpins a favorite, through the worker', async () => {
   const pinned: Store = { ...SAMPLE_STORE, favoriteIds: [LUNA.id] }
   const { view, favorites } = await open({ store: pinned, favorite: () => ({ ok: true, store: { ...pinned, favoriteIds: [LUNA.id, OPUS.id] } }) })
-  assert.equal(view.find({ label: COPY.removeFavorite('Luna') })?.props.tone, 'accent')
-  assert.equal(view.find({ label: COPY.addFavorite('Opus') })?.props.tone, 'neutral')
+  assert.equal(view.find({ label: COPY.removeFavorite('Luna') })?.props.variant, 'solid')
+  assert.equal(view.find({ label: COPY.addFavorite('Opus') })?.props.variant, 'ghost')
   await view.press({ label: COPY.addFavorite('Opus') })
   await view.press({ label: COPY.removeFavorite('Luna') })
   assert.deepEqual(favorites, [
