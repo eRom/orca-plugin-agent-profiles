@@ -924,6 +924,14 @@ test('with five favorites, the other stars are disabled and say why, the pinned 
   await expectClean(view)
 })
 
+test('when the slots are full, a greyed star names the favorites hidden with their disabled agent', async () => {
+  const extra = ['a', 'b', 'c'].map((id) => ({ ...OPUS, id, name: `Opus ${id}` }))
+  const store: Store = { ...SAMPLE_STORE, profiles: [...SAMPLE_STORE.profiles, ...extra], favoriteIds: [OPUS.id, LUNA.id, 'a', 'b', 'c'] }
+  const { view } = await open({ store, inventory: { ...ENABLED, agents: ENABLED.agents.filter((id) => id !== 'codex') } })
+  assert.equal(view.find({ label: COPY.addFavorite('Argon') })?.props.tooltip, COPY.favoritesFullHidden(5, 'Luna (Codex)'))
+  await expectClean(view)
+})
+
 test('a favorite refused by the worker shows its reason', async () => {
   const { view } = await open({ favorite: () => ({ ok: false, error: COPY.favoritesFull(5) }) })
   await view.press({ label: COPY.addFavorite('Opus') })

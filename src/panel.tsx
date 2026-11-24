@@ -202,7 +202,8 @@ function renderProfileSummary(current: Store, profile: Profile) {
   )
 }
 
-function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, canLaunch: boolean) {
+/** `fullReason` : infobulle d'une étoile grisée faute de place, qui nomme les favoris cachés s'il y en a. */
+function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, canLaunch: boolean, fullReason: string) {
   const m = copy()
   const favorite = current.favoriteIds.includes(profile.id)
   // Plus d'emplacement libre : l'étoile d'un non-favori se grise, son infobulle dit pourquoi.
@@ -233,7 +234,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
         <IconButton
           icon="star"
           label={favorite ? m.removeFavorite(profile.name) : m.addFavorite(profile.name)}
-          tooltip={full ? m.favoritesFull(MAX_FAVORITES) : undefined}
+          tooltip={full ? fullReason : undefined}
           // Un ton sur un bouton `ghost` ne se voit pas (capture du 24/11) : le favori prend une pastille pleine.
           variant={favorite ? 'solid' : 'ghost'}
           tone={favorite ? 'accent' : 'neutral'}
@@ -267,7 +268,7 @@ function renderProfileRow(current: Store, spec: AgentSpec, profile: Profile, can
  * Le cadre prend la surface `muted` du thème d'Orca (thèmes personnalisés compris) pour se détacher du fond du volet ;
  * `card` s'y confond sur le thème sombre.
  */
-function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, collapsed: boolean) {
+function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, collapsed: boolean, fullReason: string) {
   const m = copy()
   const profiles = current.profiles.filter((profile) => profile.agentId === spec.id).sort((a, b) => byName(a.name, b.name))
   return (
@@ -312,7 +313,7 @@ function renderAgentGroup(current: Store, spec: AgentSpec, canLaunch: boolean, c
           {m.noProfileForAgent}
         </Text>
       ) : (
-        profiles.map((profile) => renderProfileRow(current, spec, profile, canLaunch))
+        profiles.map((profile) => renderProfileRow(current, spec, profile, canLaunch, fullReason))
       )}
     </Box>
   )
@@ -371,7 +372,17 @@ function renderGroups(current: Store, agents: Inventory | null, canLaunch: boole
   const specs = agents.agents.flatMap((id) => agentById(id) ?? []).sort((a, b) => byName(a.label, b.label))
   if (specs.length === 0) return <EmptyState icon="bot" title={m.noAgentTitle} description={m.noAgentHint} />
   const collapsed = read(collapsedAgents)
-  return <Stack gap="sm">{specs.map((spec) => renderAgentGroup(current, spec, canLaunch, collapsed.includes(spec.id)))}</Stack>
+  // Un favori d'un agent désactivé n'a pas de ligne ici mais garde sa place : le refus le nomme, sinon l'étoile à retirer est introuvable.
+  const hidden = favoriteProfiles(current).filter((profile) => !agents.agents.includes(profile.agentId))
+  const fullReason =
+    hidden.length === 0
+      ? m.favoritesFull(MAX_FAVORITES)
+      : m.favoritesFullHidden(MAX_FAVORITES, hidden.map((profile) => `${profile.name} (${agentById(profile.agentId)?.label ?? profile.agentId})`).join(', '))
+  return (
+    <Stack gap="sm">
+      {specs.map((spec) => renderAgentGroup(current, spec, canLaunch, collapsed.includes(spec.id), fullReason))}
+    </Stack>
+  )
 }
 
 export default function Panel() {

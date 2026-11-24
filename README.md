@@ -30,6 +30,7 @@ Orca shows the access the plugin asks for (see [What it can access](#what-it-can
 - **Profiles** show an avatar or a monogram, the name, a "model · effort · provider" summary, and a badge on the last profile launched. ▷ launches, ✎ edits.
 - **The form adapts to the agent**: model and effort fields appear only when the agent accepts them (Claude, Codex, Grok, Antigravity, Pi, CodeBuddy and others), extra arguments always.
 - **Providers for Claude**: a base URL, a token and extra environment variables, shared between profiles. Any Anthropic-compatible endpoint works (Ollama, OpenRouter, a local gateway).
+- **Favorites in the status bar**: ☆ on a profile pins it, up to five. Each favorite gets its own status bar item that launches it in one click, also available as *Agents: launch favorite 1* to *5* in the command palette. A favorite whose agent you disable in Orca keeps its slot; enable the agent again to unpin it.
 - **Relaunch the last profile** with `Mod+Alt+L` or the command *Agents: relaunch last profile*, whatever its agent.
 - **Avatars**: bundled agent icons and model brand icons, picked in the profile form.
 

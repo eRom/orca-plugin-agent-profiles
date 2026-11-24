@@ -33,6 +33,8 @@ export type Messages = {
   profileProviderMissing: (name: string) => string
   launched: (name: string) => string
   favoritesFull: (max: number) => string
+  /** Plus de place, et certains favoris appartiennent à un agent désactivé, donc absents du panneau. */
+  favoritesFullHidden: (max: number, names: string) => string
   /** Emplacement de la barre d'état sans favori : atteignable seulement par la palette de commandes. */
   noFavoriteInSlot: (slot: number) => string
   /** Infobulle d'un favori dans la barre d'état : « Lancer Opus (Claude) ». */
@@ -120,6 +122,8 @@ const fr: Messages = {
   profileProviderMissing: (name) => `« ${name} » : fournisseur introuvable.`,
   launched: (name) => `« ${name} » lancé.`,
   favoritesFull: (max) => `${max} favoris au plus : retire d'abord une étoile.`,
+  favoritesFullHidden: (max, names) =>
+    `${max} favoris au plus. Épinglés mais masqués, leur agent étant désactivé : ${names}. Réactive l'agent pour retirer leur étoile.`,
   noFavoriteInSlot: (slot) => `Aucun favori à l'emplacement ${slot}.`,
   favoriteTooltip: (name, agentLabel) => `Lancer ${name} (${agentLabel})`,
   literalToken: 'Jeton stocké en clair dans le plugin ; préfère une référence $NOM.',
@@ -212,6 +216,8 @@ const en: Messages = {
   profileProviderMissing: (name) => `"${name}": provider not found.`,
   launched: (name) => `"${name}" launched.`,
   favoritesFull: (max) => `${max} favorites at most: unstar one first.`,
+  favoritesFullHidden: (max, names) =>
+    `${max} favorites at most. Pinned but hidden because their agent is disabled: ${names}. Enable the agent to unstar them.`,
   noFavoriteInSlot: (slot) => `No favorite in slot ${slot}.`,
   favoriteTooltip: (name, agentLabel) => `Launch ${name} (${agentLabel})`,
   literalToken: 'Token stored in plain text in the plugin; prefer a $NAME reference.',
